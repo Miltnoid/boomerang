@@ -576,7 +576,10 @@ let find_concat_split r1 r2 n s =
 let concat_split r1 r2 s =
   let p = Rx.split_positions r1 r2 (to_string s) in
   if Int.Set.cardinal p <> 1
-  then error "concat_split: bad split";
+  then error ("concat_split: bad split, string: " ^ (to_string s)
+              ^ " rx1: " ^ (Rx.string_of_t r1)
+              ^ " rx2: " ^ (Rx.string_of_t r2)
+              ^ " split: " ^ (Int.Set.fold (fun i s -> s ^ (string_of_int i)) p ""));
   let s, i, j = s in
   let k = i + Int.Set.choose p in
   (s, i, k), (s, k, j)
