@@ -1283,6 +1283,7 @@ module MLens = struct
                 TmI.plus i ij)
           ) (0, pi) pi_arr_s
         in pi
+  and ri_empty = (TmImA.empty, TmI.empty)
 
   (* ((v, c), ri) = gget ml s (r, i)
      . [s] is in the stype of [ml].
@@ -1304,36 +1305,56 @@ module MLens = struct
       gputl'
         (invert ml)
         (s, None)
-        (TmImA.empty, TmI.empty)
-        (TmImA.empty, TmI.empty)
+        ri_empty
+        ri_empty
     in
     (v,c),ri_acc
   and gputr
       (ml:t)
-      (s:string)
+      (s:Bstring.t)
       (c:complement)
       (ri:complement TmImA.t * TmI.t)
     : string =
-    let (v, _), _, _ = gputl' (invert ml) (s, Some c) ri in
+    let (v, _), _, _ =
+      gputl'
+        (invert ml)
+        (s, Some c)
+        ri
+        ri_empty
+    in
     v
-  and gcreatel ml v = gputl' ml (v, None)
-  and gputl ml (v, c) ri =
-    let (s, _), ri = gputl' ml (v, Some c) ri in
-    (s, ri)
+  and gcreatel
+      (ml:t)
+      (v:Bstring.t)
+    : (string * complement) * (complement TmImA.t * TmI.t) =
+    let (v,c),_,ri =
+      gputl'
+        ml
+        (v, None)
+        ri_empty
+        ri_empty
+    in
+    (v,c),ri
+  and gputl
+      (ml:t)
+      (v:Bstring.t)
+      (c:complement)
+      (ri:complement TmImA.t * TmI.t)
+    : string =
+    let (s, _), _, _ =
+      gputl'
+        ml
+        (v, Some c)
+        ri
+        ri_empty
+    in
+    s
   and gputl'
       (ml:t)
       ((v, co):Bstring.t * complement option)
       (ri:complement TmImA.t * TmI.t)
       (ri_acc:complement TmImA.t * TmI.t)
     : (string * complement) * (complement TmImA.t * TmI.t) * (complement TmImA.t * TmI.t) =
-    print_endline "";
-    print_endline "";
-    format_t ml;
-    print_endline "";
-    begin match co with
-      | None -> print_endline "No complement"
-      | Some c -> print_complement c; print_endline ""
-    end;
     (* returns (s, ri) *)
     let basic f =
       let so =
@@ -1342,26 +1363,19 @@ module MLens = struct
         | None -> None
         | _ -> assert false
       in
-     (f v so, C_string v), ri 
+     (f v so, C_string v), ri, ri_acc
     in
     let basic_no_op ml = basic (rput' ml) in
-    let no_op ml = gputl' ml (v, co) ri in
+    let no_op ml = gputl' ml (v, co) ri ri_acc in
     match ml.desc with
     | Copy _
       -> basic (fun v _ -> Bstring.to_string v)
     | Disconnect (r1, _, f, _) ->
-      print_endline "";
-      print_endline "";
-      print_endline "";
-      print_endline "";
-      print_endline "";
-      Brx.format_t r1;
-      print_endline "";
       basic
         (fun v so ->
            match so with
            | Some s -> Bstring.to_string s
-           | None -> print_endline "was a none"; f (Bstring.to_string v))
+           | None -> f (Bstring.to_string v))
     | Concat (ml1, ml2) ->
         let co1, n, co2 =
           match co with
@@ -1370,8 +1384,8 @@ module MLens = struct
           | _ -> assert false
         in
         let v1, v2 = Bstring.concat_ambiguous_split n (vtype ml1) (vtype ml2) v in
-        let (s1,c1), ri = gputl' ml1 (v1, co1) ri in
-        let (s2,c2), ri = gputl' ml2 (v2, co2) ri in
+        let (s1,c1), ri, ri_acc = gputl' ml1 (v1, co1) ri ri_acc in
+        let (s2,c2), ri, ri_acc = gputl' ml2 (v2, co2) ri ri_acc in
         let s = s1 ^ s2 in
         let n =
           Bstring.find_concat_split
@@ -1380,7 +1394,7 @@ module MLens = struct
             (String.length s1)
             s
         in
-        (s, C_concat (c1,n,c2)), ri
+        (s, C_concat (c1,n,c2)), ri, ri_acc
     | Union (left, right) ->
         let side, co =
           match co with
@@ -1402,8 +1416,8 @@ module MLens = struct
             | false, true , Union_left  -> right, None, Union_right
             | _ -> assert false
         in
-        let (s, c), ri = gputl' ml (v, co) ri in
-        (s, C_union (matches_side, c)), ri
+        let (s, c), ri, ri_acc = gputl' ml (v, co) ri ri_acc in
+        (s, C_union (matches_side, c)), ri, ri_acc
     | Star ml ->
         let cs, ns =
           match co with
@@ -1420,24 +1434,29 @@ module MLens = struct
             | ([], _) -> []
           end
         in
-        let ns, cs, ri =
+        let ns, cs, ri, ri_acc =
           Safelist.fold_left
-            (fun (ns,cs,ri) (v,co) ->
-               let (s, c), ri = gputl' ml (v, co) ri in
+            (fun (ns,cs,ri,ri_acc) (v,co) ->
+               let (s, c), ri, ri_acc = gputl' ml (v, co) ri ri_acc in
                Buffer.add_string buf s;
-               (String.length s::ns, c::cs, ri))
-            ([], [], ri)
+               (String.length s::ns, c::cs, ri, ri_acc))
+            ([], [], ri, ri_acc)
             (zip_forgetful_right ss cs)
         in
         let s = Buffer.contents buf in
         let ns = Bstring.find_star_split (stype ml) (Safelist.rev ns) s in
-        (s, C_star (Safelist.rev cs, ns)), ri
+        (s, C_star (Safelist.rev cs, ns)), ri, ri_acc
     | Match (tag, ml) ->
-        let r, i = ri in
+        let r,i = ri in
+        let r_acc, i_acc = ri_acc in
         let pos = TmI.find tag i in
+        let pos_acc = TmI.find tag i_acc in
+        let ri_acc = r_acc, TmI.incr tag i_acc in
         let co, r = TmImA.next tag pos r in
         let ri = r, TmI.incr tag i in
-        gputl' ml (v, co) ri
+        let (v,c), ri, (r_acc, i_acc) = gputl' ml (v, co) ri ri_acc in
+        let ri_acc = TmImA.add tag pos_acc c r_acc, i_acc in
+        (v, C_box), ri, ri_acc
     | Compose (ml1, ml2) ->
 (*         print_endline "+++gput' for Compose"; *)
         let co1, co2 =
@@ -1447,6 +1466,7 @@ module MLens = struct
           | _ -> assert false
         in
         let r, i = ri in
+        let r_acc, i_acc = ri_acc in
         let len = Bstring.at_to_locs (Arx.parse (avtype ml2) v) in
         let r1, r2, r = Balign.res_unzip (
           fun x ->
@@ -1457,19 +1477,42 @@ module MLens = struct
 (*         Balign.print_res print_complement r1; *)
 (*         Balign.print_res print_complement r2; *)
 (*         Balign.print_res print_complement r; *)
-        let (u, uc), (r2, i2) = gputl' ml2 (v, co2) (r2, i) in
+        let (u, uc), (r2, i2), (ur_acc, iu_acc) =
+          gputl'
+            ml2
+            (v, co2)
+            (r2, i)
+            (TmImA.empty, i_acc)
+        in
         let u = Bstring.of_string u in
         let p2, i3 = gperm ml2 u (P.empty, i) in
 (*         Balign.print_perm p2; *)
         assert (TmI.equal i2 i3);
         let r1 = Balign.res_compose_perm r1 p2 in
 (*         Balign.print_res print_complement r1; *)
-        let (s, sc), (r1, i1) = gputl' ml1 (u, co1) (r1, i) in
+        let (s, sc), (r1, i1), (vr_acc, iv_acc) =
+          gputl'
+            ml1
+            (u, co1)
+            (r1, i)
+            (TmImA.empty, i_acc)
+        in
+        let p_acc, ip_acc = gperm ml2 u (P.empty, i_acc) in
+        assert (TmI.equal ip_acc iv_acc);
+        let ur_acc = Balign.res_compose_perm ur_acc (P.inv p_acc) in
+        assert (TmI.equal iu_acc iv_acc);
+        let r_acc =
+          Balign.res_zip
+            (fun (x,y) -> C_compose (x,y))
+            r_acc
+            ur_acc
+            vr_acc
+        in
         assert (TmI.equal i1 i2);
         assert (TmImA.is_empty r1);
         assert (TmImA.is_empty r2);
 (*         print_endline "---gput' for Compose"; *)
-        (s, C_compose (uc, sc)), (r, i1)
+        (s, C_compose (uc, sc)), (r, i1), (r_acc, iv_acc)
     | Weight (_, ml) -> no_op ml
     | Align ml -> basic_no_op ml
     | Invert ml -> basic (fun v _ -> rget ml v)
@@ -1479,10 +1522,19 @@ module MLens = struct
           | Some s -> rput ml v s
           | None -> rput ml v (Bstring.of_string (f1 (Bstring.to_string v))))
     | LeftQuot (cn, ml) ->
-        let (u,c), ri = gputl' ml (v, co) ri in
+        let r_acc, i_acc = ri_acc in
+        let (u,c), ri, (r_acc, i1_acc) = gputl' ml (v, co) ri ri_acc in
         let u = Bstring.of_string u in
         let s = Canonizer.choose cn u in
-        (s,c), ri
+        let p_acc, i2_acc =
+          Canonizer.gperm
+            cn
+            (Bstring.of_string s)
+            (P.empty, i_acc)
+        in
+        assert (TmI.equal i1_acc i2_acc);
+        let r_acc = Balign.res_compose_perm r_acc p_acc in
+        (s,c), ri, (r_acc, i2_acc)
     | RightQuot (ml, cn) ->
 (*         print_endline "+++gput' for RightQuot"; *)
         let u = Canonizer.canonize cn v in
@@ -1492,9 +1544,9 @@ module MLens = struct
         let p, iu = Canonizer.gperm cn v (P.empty, i) in
 (*         Balign.print_perm p; *)
         let r = Balign.res_compose_perm r (P.inv p) in
-        let s, ri = gputl' ml (u, co) (r, i) in
+        let s, ri, ri_acc = gputl' ml (u, co) (r, i) ri_acc in
 (*         print_endline "---gput' for RightQuot"; *)
-        s, ri
+        s, ri, ri_acc
     | DupFirst (ml, f1, r1, _, r2) ->
       let co1, n, s1s2o =
         begin match co with
@@ -1505,7 +1557,7 @@ module MLens = struct
         end
       in
       let v1, v2 = Bstring.concat_ambiguous_split n (vtype ml) r2 v in
-      let (s1,c1), ri = gputl' ml (v1, co1) ri in
+      let (s1,c1), ri, ri_acc = gputl' ml (v1, co1) ri ri_acc in
       let v1 = Bstring.to_string v1 in
       let s2 =
         begin match s1s2o with
@@ -1526,7 +1578,7 @@ module MLens = struct
           s
       in
       let c2 = C_string v2 in
-      (s, C_concat (c1, n, c2)), ri
+      (s, C_concat (c1, n, c2)), ri, ri_acc
     | DupSecond (f1, r1, _, r2, ml) ->
       let co2, n, s1s2o =
         begin match co with
@@ -1537,7 +1589,7 @@ module MLens = struct
         end
       in
       let _, v2 = Bstring.concat_ambiguous_split n r2 (vtype ml) v in
-      let (s2,c2), ri = gputl' ml (v2, co2) ri in
+      let (s2,c2), ri, ri_acc = gputl' ml (v2, co2) ri ri_acc in
       let v2 = Bstring.to_string v2 in
       let s1 =
         begin match s1s2o with
@@ -1558,7 +1610,7 @@ module MLens = struct
           s
       in
       let c1 = C_string (Bstring.of_string s1) in
-      (s, C_concat (c1, n, c2)), ri
+      (s, C_concat (c1, n, c2)), ri, ri_acc
     | Partition (k,rs1) -> basic (
         fun v so ->
           let ss = match so with
@@ -1642,55 +1694,39 @@ module MLens = struct
         in
         let s_arr_s = Array.create k "" in
         let c_arr_s = Array.make k (C_string (Bstring.of_string "")) in
-        let rec loop j ri =
-          if j >= k then ri
+        let rec loop j ri ri_acc =
+          if j >= k then ri,ri_acc
           else (
             let i = sigma_inv.(j) in
             (* we do the put's in view order *)
-            let (si,ci), ri = gputl' mls.(i) (v_arr_v.(j), co_arr_v.(j)) ri in
+            let (si,ci), ri, ri_acc = gputl' mls.(i) (v_arr_v.(j), co_arr_v.(j)) ri ri_acc in
             s_arr_s.(i) <- si;
             c_arr_s.(i) <- ci;
-            loop (succ j) ri
+            loop (succ j) ri ri_acc
           )
         in
-        let ri = loop 0 ri in
+        let ri,ri_acc = loop 0 ri ri_acc in
         let s = concat_array s_arr_s in
         let c_list_s = Array.fold_right
             (fun c l -> c::l)
             c_arr_s
             []
         in
-        (s, C_list c_list_s), ri
+        (s, C_list c_list_s), ri, ri_acc
 
   (* these are the definitions for lower *)
 
   and rcreate ml (v:Bstring.t) =
-    print_endline "RCREATE";
-    print_endline (Bstring.to_string v);
-    print_endline (string_of_t ml);
-    print_endline "";
-    let ci = (TmImA.empty, TmI.empty) in
-    fst (fst (gcreatel ml v ci))
+    fst (fst (gcreatel ml v))
 
   and rput ml v' (s:Bstring.t) =
 (*     print_endline "+++rput"; *)
-    print_endline "RPUT";
-    print_endline (Bstring.to_string s);
-    print_endline (string_of_t ml);
-    print_endline "";
     let vparse v = Bstring.at_to_chunktree (Arx.parse (avtype ml) (Bstring.of_string (vrep ml v))) in
     let align = Balign.align Bcost.infinite in
-    let (v, k), (r, _) = gcreater ml s (TmImA.empty, TmI.empty) in
+    let (v, k), (r, _) = gcreater ml s in
 (*     print_endline ("v = \"" ^ vrep ml (Bstring.of_string v) ^ "\" from \"" ^ v ^ "\""); *)
 (*     print_endline ("v' = \"" ^ vrep ml v'  ^ "\" from \"" ^ Bstring.to_string v' ^ "\""); *)
     (*     Balign.print_res print_complement r; *)
-    print_endline "";
-    print_complement k;
-    print_endline "";
-    print_endline (string_of_t ml);
-    print_endline (Bstring.to_string v');
-    print_endline "";
-    print_endline v;
     let g = align (vparse v') (vparse (Bstring.of_string v)) G.empty in
 (*     G.print g; *)
     (match G.to_error_option g with
@@ -1699,7 +1735,7 @@ module MLens = struct
     );
     let r = Balign.align_compose_res r g in
 (*     Balign.print_res print_complement r; *)
-    let s = fst (gputl ml (v', k) (r, TmI.empty)) in
+    let s = gputl ml v' k (r, TmI.empty) in
 (*     print_endline "---rput"; *)
     s
 
@@ -1709,12 +1745,7 @@ module MLens = struct
     | None -> rcreate ml v'
 
   and rget ml (s:Bstring.t) =
-    print_endline "RGET";
-    print_endline (Bstring.to_string s);
-    print_endline (string_of_t ml);
-    print_endline "";
-    let cbi = (TmImA.empty, TmI.empty) in
-    fst (fst (gcreater ml s cbi))
+    fst (fst (gcreater ml s))
 
   (* helpers for permute *)
   and arr_split_v k mls sigma_inv ats v =
