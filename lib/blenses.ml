@@ -1196,6 +1196,7 @@ module MLens = struct
         ) sigma;
         concat_array r_arr_v
 
+  (* TODO add complements *)
   and gperm ml s pi = (* returns pi *)
     let basic = pi in
     match ml.desc with
@@ -1212,7 +1213,7 @@ module MLens = struct
     | Fiat _
       -> basic
     | Concat (ml1, ml2) ->
-        let s1, s2 = Bstring.concat_split (stype ml1) (stype ml2) s in
+        let s1, s2 = Bstring.concat_ambiguous_split 0 (stype ml1) (stype ml2) s in
         gperm ml2 s2 (gperm ml1 s1 pi)
     | Union (left, right) ->
         if Bstring.match_rx (stype left) s
@@ -1356,6 +1357,15 @@ module MLens = struct
       (ri_acc:complement TmImA.t * TmI.t)
     : (string * complement) * (complement TmImA.t * TmI.t) * (complement TmImA.t * TmI.t) =
     (* returns (s, ri) *)
+    (*print_endline "";
+    print_endline "";
+    print_endline "";
+    format_t ml;
+    print_endline "";
+    begin match co with
+      | None -> print_endline "no complement"
+      | Some c -> print_complement c; print_endline ""
+    end;**)
     let basic f =
       let so =
         match co with
@@ -1458,17 +1468,18 @@ module MLens = struct
         let ri_acc = TmImA.add tag pos_acc c r_acc, i_acc in
         (v, C_box), ri, ri_acc
     | Compose (ml1, ml2) ->
-(*         print_endline "+++gput' for Compose"; *)
+      (*         print_endline "+++gput' for Compose"; *)
         let co1, co2 =
           match co with
-          | Some (C_compose (c1, c2)) -> Some c1, Some c2
+          | Some (C_compose (c1, c2)) ->
+            Some c1, Some c2
           | None -> None, None
           | _ -> assert false
         in
         let r, i = ri in
         let r_acc, i_acc = ri_acc in
         let len = Bstring.at_to_locs (Arx.parse (avtype ml2) v) in
-        let r1, r2, r = Balign.res_unzip (
+        let r1, r2, _ = Balign.res_unzip (
           fun x ->
             match x with
             | C_compose (a, b) -> a, b
@@ -1486,10 +1497,10 @@ module MLens = struct
         in
         let u = Bstring.of_string u in
         let p2, i3 = gperm ml2 u (P.empty, i) in
-(*         Balign.print_perm p2; *)
+        (*         Balign.print_perm p2; *)
         assert (TmI.equal i2 i3);
         let r1 = Balign.res_compose_perm r1 p2 in
-(*         Balign.print_res print_complement r1; *)
+            (*         Balign.print_res print_complement r1; *)
         let (s, sc), (r1, i1), (vr_acc, iv_acc) =
           gputl'
             ml1
@@ -1497,7 +1508,7 @@ module MLens = struct
             (r1, i)
             (TmImA.empty, i_acc)
         in
-        let p_acc, ip_acc = gperm ml2 u (P.empty, i_acc) in
+        let p_acc, ip_acc = gperm (invert ml1) u (P.empty, i_acc) in
         assert (TmI.equal ip_acc iv_acc);
         let ur_acc = Balign.res_compose_perm ur_acc (P.inv p_acc) in
         assert (TmI.equal iu_acc iv_acc);
@@ -1509,9 +1520,7 @@ module MLens = struct
             vr_acc
         in
         assert (TmI.equal i1 i2);
-        assert (TmImA.is_empty r1);
-        assert (TmImA.is_empty r2);
-(*         print_endline "---gput' for Compose"; *)
+        (*         print_endline "---gput' for Compose"; *)
         (s, C_compose (uc, sc)), (r, i1), (r_acc, iv_acc)
     | Weight (_, ml) -> no_op ml
     | Align ml -> basic_no_op ml
@@ -1694,18 +1703,36 @@ module MLens = struct
         in
         let s_arr_s = Array.create k "" in
         let c_arr_s = Array.make k (C_string (Bstring.of_string "")) in
-        let rec loop j ri ri_acc =
-          if j >= k then ri,ri_acc
+        let ri_acc_arr_s = Array.make k ri_empty in
+        let rec loop j ri =
+          if j >= k then ri
           else (
             let i = sigma_inv.(j) in
             (* we do the put's in view order *)
-            let (si,ci), ri, ri_acc = gputl' mls.(i) (v_arr_v.(j), co_arr_v.(j)) ri ri_acc in
+            let (si,ci), ri, ri_acc = gputl' mls.(i) (v_arr_v.(j), co_arr_v.(j)) ri ri_empty in
             s_arr_s.(i) <- si;
             c_arr_s.(i) <- ci;
-            loop (succ j) ri ri_acc
+            ri_acc_arr_s.(i) <- ri_acc;
+            loop (succ j) ri
           )
         in
-        let ri,ri_acc = loop 0 ri ri_acc in
+        let ri = loop 0 ri in
+        let _, i_acc = ri_acc in
+        let s_shift = Array.make k i_acc in
+        for i = 0 to k - 1 do
+          let (_, shift) = ri_acc_arr_s.(i) in
+          for j = i + 1 to k - 1 do
+            s_shift.(j) <- TmI.plus s_shift.(j) shift
+          done
+        done;
+        let _, ri_acc =
+          Array.fold_left
+            (fun (j, (r,i)) (rj, ij) ->
+               succ j, (
+                 TmImA.append rj s_shift.(j) r,
+                 TmI.plus i ij)
+            ) (0, ri_acc) ri_acc_arr_s
+        in
         let s = concat_array s_arr_s in
         let c_list_s = Array.fold_right
             (fun c l -> c::l)
@@ -1720,7 +1747,7 @@ module MLens = struct
     fst (fst (gcreatel ml v))
 
   and rput ml v' (s:Bstring.t) =
-(*     print_endline "+++rput"; *)
+    (*     print_endline "+++rput"; *)
     let vparse v = Bstring.at_to_chunktree (Arx.parse (avtype ml) (Bstring.of_string (vrep ml v))) in
     let align = Balign.align Bcost.infinite in
     let (v, k), (r, _) = gcreater ml s in
