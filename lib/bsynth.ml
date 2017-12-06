@@ -19,6 +19,7 @@
 (* $Id: bvalue.ml 4998 2011-03-16 21:53:34Z mgree $ *)
 (******************************************************************************)
 
+open Stdlib
 open Ubase
 open Hbase
 
@@ -32,4 +33,7 @@ let synth
     (r2:Brx.t)
     (exs:(string * string) list)
   : Blenses.MLens.t =
+  let (lexs,rexs) = List.unzip exs in
+  let r1 = Brx.to_exampled_regex r1 lexs in
+  let r2 = Brx.to_exampled_regex r2 rexs in
   failwith "ah"

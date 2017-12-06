@@ -97,3 +97,6 @@ val langle_code : int
 val rangle_code : int
 val colon_code : int
 
+(* language transformations *)
+val to_exampled_regex
+  : t -> string list -> Optician.Normalized_lang.ExampledRegex.t

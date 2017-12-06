@@ -99,6 +99,10 @@ val map_left : ('a,'b) alternative -> ('a -> ('a,'b) alternative) -> ('a,'b) alt
 
 val map_right : ('a,'b) alternative -> ('b -> ('a,'b) alternative) -> ('a,'b) alternative
 
+val is_left : ('a,'b) alternative -> bool
+
+val is_right : ('a,'b) alternative -> bool
+
 (** {2 String utility functions} *)
 
 val escape : (char -> string) -> string -> string

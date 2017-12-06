@@ -1,11 +1,33 @@
 (jbuild_version 1)
 
+(library
+ ((name ounit_general_extensions)
+  (modules ounit_general_extensions)
+  (libraries (stdlib ounit)))
+)
+
+(library
+ ((name ounit_extensions)
+  (modules ounit_extensions)
+  (libraries (stdlib ounit optician ounit_general_extensions)))
+)
+
 (executable
  ((name synth_unittests)
-  (modules (synth_unittests ounit_general_extensions ounit_extensions))
-  (libraries (ounit stdlib))))
+  (modules (synth_unittests))
+  (libraries (ounit stdlib ounit_general_extensions ounit_extensions))))
+
+(executable
+ ((name bbase_unittests)
+  (modules (bbase_unittests))
+  (libraries (ounit stdlib bbase ounit_extensions))))
 
 (alias
  ((name    runtest)
   (deps    (synth_unittests.exe))
+  (action  (run ${^}))))
+
+(alias
+ ((name    runtest)
+  (deps    (bbase_unittests.exe))
   (action  (run ${^}))))

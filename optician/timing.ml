@@ -1,4 +1,4 @@
-open Core.Std
+open Core
 
 type entry =
   { mutable laps : float list

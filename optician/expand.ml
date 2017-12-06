@@ -4,6 +4,7 @@ open Lenscontext
 open Regexcontext
 open Synth_structs
 open Consts
+open Normalized_lang
 
 (***** Helper Functions {{{ *****)
 let get_rep_var
@@ -15,68 +16,368 @@ let get_rep_var
   else
     ud
 
+type ill = int list list
+
+type 'a openable_datad = opened:bool -> openable:OpenableData.t -> 'a
+
+let ignore_openable_data
+    (type a)
+    (x:a)
+    ~opened:(_:bool)
+    ~openable:(_:OpenableData.t)
+  : a =
+  x
+
 let star_depth_regex_fold
-    ~init_depth:(init_depth:int)
-    ~empty_f:(empty_f:int -> 'a)
-    ~base_f:(base_f:int -> string -> 'a)
-    ~concat_f:(concat_f:int -> 'a -> 'a -> 'a)
-    ~or_f:(or_f:int -> 'a -> 'a -> 'a)
-    ~star_f:(star_f:int -> 'a -> 'a)
-    ~var_f:(var_f:int -> Id.t -> 'a)
-    (r:Regex.t)
+    ~base_f:(base_f:(int -> string -> 'a) openable_datad)
+    ~concat_f:(concat_f:(int -> 'a -> 'a -> 'a) openable_datad)
+    ~union_f:(union_f:(int -> 'a list -> 'a) openable_datad)
+    ~star_f:(star_f:(int -> 'a -> 'a) openable_datad)
+    ~diff_f:(diff_f:(int -> 'a -> 'a -> 'a) openable_datad)
+    ~inter_f:(inter_f:(int -> 'a list -> 'a) openable_datad)
+    (r:ExampledRegex.t)
   : 'a =
-  Regex.fold_downward_upward
-    ~init:init_depth
-    ~upward_empty:empty_f
-    ~upward_base:base_f
-    ~upward_concat:concat_f
-    ~upward_or:or_f
-    ~upward_star:star_f
-    ~upward_var:var_f
-    ~downward_star:(fun d -> d+1)
+
+  let ignore_ill
+      (type a)
+      (x:a)
+      ~ill:(ill:ill)
+    : a =
+    x
+  in
+
+  ExampledRegex.fold_downward_upward
+    ~init:0
+    ~upward_base:(ignore_ill base_f)
+    ~upward_concat:(ignore_ill concat_f)
+    ~upward_union:(ignore_ill union_f)
+    ~upward_star:(ignore_ill star_f)
+    ~upward_diff:(ignore_ill diff_f)
+    ~upward_inter:(ignore_ill inter_f)
+    ~downward_star:(ExampledRegex.ignore_data (fun d -> d+1))
     r
+
+let clean_example_openable
+    (openable:OpenableData.t)
+  : OpenableData.t =
+  begin match openable with
+    | OpenableData.True -> OpenableData.True
+    | OpenableData.False _ -> OpenableData.False []
+  end
+
+let clean_creation
+    (type a)
+    (f:ill:ill -> ?opened:bool -> openable:OpenableData.t -> a)
+    ~opened:(opened:bool)
+    ~openable:(openable:OpenableData.t)
+  : a =
+  let openable = clean_example_openable openable in
+  f
+    ~ill:[]
+    ~opened:opened
+    ~openable:openable
+
+
+let clean_example_data : ExampledRegex.t -> ExampledRegex.t =
+  let ignore_ill
+      (type a)
+      (x:a)
+      ~ill:(ill:ill)
+    : a =
+    x
+  in
+
+  ExampledRegex.fold
+    ~base_f:(ExampledRegex.ignore_data (fun s ->
+        ExampledRegex.mk_base ~ill:[] s))
+    ~concat_f:(ignore_ill (fun ~opened:on ~openable:oa r1 r2 ->
+        (clean_creation ExampledRegex.mk_concat)
+          ~opened:on
+          ~openable:oa
+          r1
+          r2))
+    ~union_f:(ignore_ill (fun ~opened:on ~openable:oa rs ->
+        (clean_creation ExampledRegex.mk_union)
+          ~opened:on
+          ~openable:oa
+          rs))
+    ~star_f:(ignore_ill (fun ~opened:on ~openable:oa r ->
+        (clean_creation ExampledRegex.mk_star)
+          ~opened:on
+          ~openable:oa
+          r))
+    ~diff_f:(ExampledRegex.ignore_data (fun r1 r2 ->
+        ExampledRegex.mk_diff
+          ~ill:[]
+          r1
+          r2
+          []))
+    ~inter_f:(ExampledRegex.ignore_data (fun rs ->
+        ExampledRegex.mk_inter
+          ~ill:[]
+          rs
+          []))
 
 (***** }}} *****)
 
 (**** GetSets {{{ *****)
-module IdSet = SetOf(Id)
+module RegexSet = SetOf(ExampledRegex)
 
 module IntSet = SetOf(IntModule)
 
-module IdIntSet = SetOf(PairOf(Id)(IntModule))
+module RegexIntSet = SetOf(PairOf(ExampledRegex)(IntModule))
 
-module IdToIntSetDict = DictOf(Id)(IntSet)
+module RegexToIntSetDict = DictOf(ExampledRegex)(IntSet)
 
 let get_current_set
     (lc:LensContext.t)
-  : Regex.t -> IdIntSet.t =
-    Regex.fold
-      ~empty_f:IdIntSet.empty
-      ~base_f:(fun _ -> IdIntSet.empty)
-      ~concat_f:(fun s1 s2 ->
-          IdIntSet.union
-            s1
-            s2)
-      ~or_f:(fun s1 s2 ->
-          IdIntSet.union
-            s1
-            s2)
-      ~star_f:(fun s -> IdIntSet.map ~f:(fun (v,i) -> (v,i+1)) s)
-      ~var_f:(fun v ->
-          let v' = get_rep_var lc v in
-          IdIntSet.singleton (v',0))
+  : ExampledRegex.t -> RegexIntSet.t =
+  snd %
+  star_depth_regex_fold
+    ~base_f:(ignore_openable_data (fun i s ->
+        (ExampledRegex.mk_base [] s,RegexIntSet.empty)))
+    ~concat_f:(fun
+                ~opened:opened
+                ~openable:openable
+                i
+                (r1,s1)
+                (r2,s2) ->
+                let r =
+                  (clean_creation ExampledRegex.mk_concat)
+                    ~opened:opened
+                    ~openable:openable
+                    r1
+                    r2
+                in
+                let s =
+                  if opened then
+                    RegexIntSet.union
+                      s1
+                      s2
+                  else
+                    RegexIntSet.singleton (r,i)
+                in
+                (r,s))
+    ~union_f:(fun
+               ~opened:opened
+               ~openable:openable
+               i
+               rss ->
+               let (rs,ss) = List.unzip rss in
+               let r =
+                 (clean_creation ExampledRegex.mk_union)
+                   ~opened:opened
+                   ~openable:openable
+                   rs
+               in
+               let s =
+                 if opened then
+                   List.fold_left
+                     ~f:(RegexIntSet.union)
+                     ~init:RegexIntSet.empty
+                     ss
+                 else
+                   RegexIntSet.singleton (r,i)
+               in
+               (r,s))
+    ~star_f:(fun
+              ~opened:opened
+              ~openable:openable
+              i
+              (r,s) ->
+              let r =
+                (clean_creation ExampledRegex.mk_star)
+                  ~opened:opened
+                  ~openable:openable
+                  r
+              in
+              let s =
+                if opened then
+                  RegexIntSet.map
+                    ~f:(fun (r,i) -> (r,i+1))
+                    s
+                else
+                  RegexIntSet.singleton (r,i)
+              in
+              (r,s))
+    ~diff_f:(fun
+              ~opened:opened
+              ~openable:openable
+              i
+              (r1,s1)
+              (r2,s2) ->
+              let r =
+                ExampledRegex.mk_diff
+                  ~ill:[]
+                  r1
+                  r2
+                  []
+              in
+              let s =
+                if opened then
+                  RegexIntSet.union
+                    s1
+                    s2
+                else
+                  RegexIntSet.singleton (r,i)
+              in
+              (r,s))
+    ~inter_f:(fun
+               ~opened:opened
+               ~openable:openable
+               i
+               rss ->
+               let (rs,ss) = List.unzip rss in
+               let r =
+                 ExampledRegex.mk_inter
+                   ~ill:[]
+                   rs
+                   []
+               in
+               let s =
+                 if opened then
+                   List.fold_left
+                     ~f:(RegexIntSet.union)
+                     ~init:RegexIntSet.empty
+                     ss
+                 else
+                   RegexIntSet.singleton (r,i)
+               in
+               (r,s))
 
 let rec get_transitive_set
     (rc:RegexContext.t)
-    (lc:LensContext.t)
-  : Regex.t -> IdToIntSetDict.t =
-  let rec get_transitive_set_internal
+    (lc:LensContext.t) =
+  (*: ExampledRegex.t -> RegexToIntSetDict.t =*)
+  (*let rec get_transitive_set_internal
       (star_depth:int)
-    : Regex.t -> IdToIntSetDict.t =
-    star_depth_regex_fold
-      ~init_depth:star_depth
-      ~empty_f:(fun _ -> IdToIntSetDict.empty)
-      ~base_f:(fun _ _ -> IdToIntSetDict.empty)
+    : Regex.t -> RegexToIntSetDict.t =*)
+  snd %
+  star_depth_regex_fold
+    ~base_f:(ignore_openable_data (fun i s ->
+        (ExampledRegex.mk_base [] s,RegexToIntSetDict.empty)))
+    ~concat_f:(fun
+                ~opened:opened
+                ~openable:openable
+                i
+                (r1,s1)
+                (r2,s2) ->
+                let r =
+                  (clean_creation ExampledRegex.mk_concat)
+                    ~opened:opened
+                    ~openable:openable
+                    r1
+                    r2
+                in
+                let s =
+                  if OpenableData.is_true openable then
+                    RegexToIntSetDict.merge_to_dict
+                      ~combiner:IntSet.union
+                      s1
+                      s2
+                  else
+                    RegexToIntSetDict.empty
+                in
+                let s =
+                  if opened then
+                    s
+                  else
+                    RegexToIntSetDict.insert_or_merge
+                      ~merge:IntSet.union
+                      s
+                      (failwith "TODO get_rep_var lc r")
+                      (IntSet.singleton i)
+                in
+                (r,s))
+    ~union_f:(fun
+               ~opened:opened
+               ~openable:openable
+               i
+               rss ->
+               let (rs,ss) = List.unzip rss in
+               let r =
+                 (clean_creation ExampledRegex.mk_union)
+                   ~opened:opened
+                   ~openable:openable
+                   rs
+               in
+               let s =
+                 if opened then
+                   List.fold_left
+                     ~f:(RegexIntSet.union)
+                     ~init:RegexIntSet.empty
+                     ss
+                 else
+                   RegexIntSet.singleton (r,i)
+               in
+               (r,s))
+    ~star_f:(ignore_ill (fun
+                          ~opened:opened
+                          ~openable:openable
+                          i
+                          (r,s) ->
+                          let r =
+                            (clean_creation ExampledRegex.mk_star)
+                              ~opened:opened
+                              ~openable:openable
+                              r
+                          in
+              let s =
+                if opened then
+                  RegexIntSet.map
+                    ~f:(fun (r,i) -> (r,i+1))
+                    s
+                else
+                  RegexIntSet.singleton (r,i)
+              in
+              (r,s)))
+    ~diff_f:(ignore_ill (fun
+              ~opened:opened
+              ~openable:openable
+              i
+              (r1,s1)
+              (r2,s2) ->
+              let r =
+                ExampledRegex.mk_diff
+                  ~ill:[]
+                  r1
+                  r2
+                  []
+              in
+              let s =
+                if opened then
+                  RegexIntSet.union
+                    s1
+                    s2
+                else
+                  RegexIntSet.singleton (r,i)
+              in
+              (r,s)))
+    ~inter_f:(ignore_ill (fun
+               ~opened:opened
+               ~openable:openable
+               i
+               rss ->
+               let (rs,ss) = List.unzip rss in
+               let r =
+                 ExampledRegex.mk_inter
+                   ~ill:[]
+                   rs
+                   []
+               in
+               let s =
+                 if opened then
+                   List.fold_left
+                     ~f:(RegexIntSet.union)
+                     ~init:RegexIntSet.empty
+                     ss
+                 else
+                   RegexIntSet.singleton (r,i)
+               in
+               (r,s)))
+    (*star_depth_regex_fold
+      ~init_depth:0
+      ~base_f:(ExampledRegex.ignore_data (fun i s -> IdToIntSetDict.empty))
       ~concat_f:(fun _ s1 s2 ->
           IdToIntSetDict.merge_to_dict
             ~combiner:IntSet.union
@@ -99,9 +400,8 @@ let rec get_transitive_set
             ~merge:IntSet.union
             iterative_values
             (get_rep_var lc v)
-            (IntSet.singleton star_depth))
-  in
-  get_transitive_set_internal 0
+            (IntSet.singleton star_depth))*)
+  (*get_transitive_set_internal 0*)
 
 let reachables_set_minus
     (set1:IdToIntSetDict.t)
@@ -181,11 +481,11 @@ let force_expand
     (rc:RegexContext.t)
     (lc:LensContext.t)
     (problem_elts:IdIntSet.t)
-  : Regex.t -> (Regex.t * int) =
+  : ExampledRegex.t -> (ExampledRegex.t * int) =
   let rec force_expand_internal
       (star_depth:int)
-      (r:Regex.t)
-    : (Regex.t * int) =
+      (r:ExampledRegex.t)
+    : (ExampledRegex.t * int) =
     star_depth_regex_fold
       ~init_depth:star_depth
       ~empty_f:(fun _ -> (Regex.make_empty,0))
@@ -197,17 +497,17 @@ let force_expand
       ~star_f:(fun _ (r,e) ->
           (Regex.make_star r, e))
       ~var_f:(fun star_depth v ->
-            if IdIntSet.member problem_elts (get_rep_var lc v,star_depth) then
-              let r =
-                Option.value_exn
-                  (RegexContext.lookup_for_expansion_exn
-                     rc
-                     v)
-              in
-              let (r,e) = force_expand_internal star_depth r in
-              (r,e+1)
-            else
-              (Regex.make_var v,0))
+          if IdIntSet.member problem_elts (get_rep_var lc v,star_depth) then
+            let r =
+              Option.value_exn
+                (RegexContext.lookup_for_expansion_exn
+                   rc
+                   v)
+            in
+            let (r,e) = force_expand_internal star_depth r in
+            (r,e+1)
+          else
+            (Regex.make_var v,0))
       r
   in
   force_expand_internal 0
@@ -315,8 +615,8 @@ let expand_once
   in
 
   let retrieve_new_problems_from_expander
-      (transform:Regex.t -> Regex.t list)
-    : (Regex.t * Regex.t) list =
+      (transform:ExampledRegex.t -> ExampledRegex.t list)
+    : (ExampledRegex.t * ExampledRegex.t) list =
     (List.map
        ~f:(fun le -> (le, QueueElement.get_r2 qe))
        (transform (QueueElement.get_r1 qe)))
@@ -341,7 +641,7 @@ let expand_once
             ~expansions_performed:((QueueElement.get_expansions_performed qe)+1)
             ~expansions_inferred:(QueueElement.get_expansions_inferred qe)
             ~expansions_forced:(QueueElement.get_expansions_forced qe)
-          )
+        )
       new_problems
   in
 
@@ -353,9 +653,9 @@ let expand_once
 let expand_required
     (rc:RegexContext.t)
     (lc:LensContext.t)
-    (r1:Regex.t)
-    (r2:Regex.t)
-  : (Regex.t * Regex.t * int) =
+    (r1:ExampledRegex.t)
+    (r2:ExampledRegex.t)
+  : (ExampledRegex.t * ExampledRegex.t * int) =
   let r1_transitive_vars = get_transitive_set rc lc r1 in
   let r2_transitive_vars = get_transitive_set rc lc r2 in
   let (left_unreachables,right_unreachables) =

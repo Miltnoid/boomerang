@@ -1,11 +1,12 @@
 open Stdlib
 open Lang
+open Normalized_lang
 
 module QueueElement = struct
   type t = 
     {
-      r1 : Regex.t;
-      r2 : Regex.t;
+      r1 : ExampledRegex.t;
+      r2 : ExampledRegex.t;
       expansions_performed : int;
       expansions_inferred : int;
       expansions_forced : int;
@@ -14,12 +15,12 @@ module QueueElement = struct
 
   let get_r1
       (q:t)
-    : Regex.t =
+    : ExampledRegex.t =
     q.r1
 
   let get_r2
       (q:t)
-    : Regex.t =
+    : ExampledRegex.t =
     q.r2
 
   let get_expansions_performed
@@ -39,7 +40,7 @@ module QueueElement = struct
 
   let nqe_to_tuple
       (q:t)
-    : Regex.t * Regex.t * int * int * int =
+    : ExampledRegex.t * ExampledRegex.t * int * int * int =
     (q.r1,
      q.r2,
      q.expansions_performed,
@@ -51,8 +52,8 @@ module QueueElement = struct
       (q2:t)
     : comparison =
     quint_compare
-      Regex.compare
-      Regex.compare
+      ExampledRegex.compare
+      ExampledRegex.compare
       (fun _ _ -> 0)
       (fun _ _ -> 0)
       (fun _ _ -> 0)

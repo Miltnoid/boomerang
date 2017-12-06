@@ -1,4 +1,4 @@
-(******************************************************************************)
+(*******************************************************************************)
 (* The Harmony Project                                                        *)
 (* harmony@lists.seas.upenn.edu                                               *)
 (******************************************************************************)
@@ -23,6 +23,8 @@
 
 open Ubase
 open Hbase
+open Optician
+open Normalized_lang
        
 module H = Hashtbl
 let msg = Util.format
@@ -653,9 +655,7 @@ let ascii_set =
 
 let anyascii =
   let t = mk_constant (Rep(ascii_set,0,None)) None (Some []) true in
-  t.derivative <- (fun c -> if c > max_ascii_code then empty else t);
-  t
-
+  t.derivative <- (fun c -> if c > max_ascii_code then empty else t); t 
 let is_epsilon t = t.uid = epsilon.uid
 let is_anything t = t.uid = anything.uid
 let is_anyascii t = t.uid = anyascii.uid
@@ -1213,15 +1213,29 @@ let disjoint_cex s1 s2 =
     | _                         -> representative (mk_inter s1 s2)
 
 let disjoint s1 s2 = 
-  is_empty (mk_inter s1 s2) 
+  is_empty (mk_inter s1 s2)
+
+let pairwise_disjoint ss =
+  let sis = List.mapi (fun i x -> (x,i)) ss in
+  let sisjs =
+    Stdlib.cartesian_map
+      (fun (x,i) (y,j) -> (x,y,i,j))
+      sis
+      sis
+  in
+  List.for_all
+    (fun (x,y,i,j) ->
+       if i = j then
+         true
+       else
+         disjoint x y)
+    sisjs
 
 let equiv s1 s2 = 
      s1.uid = s2.uid 
   || (is_empty (mk_diff s1 s2) && is_empty (mk_diff s2 s1))
 
-let splittable s1 s2 = match splittable_cex s1 s2 with 
-  | Misc.Right _ -> true
-  | _ -> false
+let splittable s1 s2 = Misc.is_right (splittable_cex s1 s2)
 
 let iterable s0 = match iterable_cex s0 with 
   | Misc.Right _ -> true
@@ -1330,5 +1344,225 @@ let char_derivative r c =
     if easy_empty r' then None
     else Some r'
 
+open Stdlib
 
+let to_exampled_regex
+    (r:t)
+    (ss:string list)
+  : ExampledRegex.t =
+  let unexpected_failure s =
+    Berror.run_error
+      (Hbase.Info.M "synth: something went wrong contact devs")
+      (fun () -> print_endline s)
+  in
+  let rec to_exampled_regex_internal
+      (under_closed:bool)
+      (r:t)
+      (ss:(string * (int list)) list)
+    : ExampledRegex.t =
+    if under_closed then
+      assert (List.length ss = 0);
+    begin match r.desc with
+      | CSet cs ->
+        let ss_c =
+          List.map
+            ~f:(fun (s,il) ->
+                if String.length s <> 1 then
+                  unexpected_failure s
+                else
+                  (String.get s 0,il))
+            ss
+        in
+        let (recs,leftovers) =
+          List.fold_left
+            ~f:(fun (acc,ss_c) i ->
+                let matches_leftovers_eithers =
+                  List.map
+                    ~f:(fun (c,il) ->
+                        if Char.to_int c = i then
+                          Left il
+                        else
+                          Right (c,il))
+                    ss_c
+                in
+                let (matches,leftovers) =
+                  split_by_either
+                    matches_leftovers_eithers
+                in
+                ((ExampledRegex.mk_base
+                    (Char.to_string (Char.unsafe_of_int i))
+                    matches)::acc
+                ,leftovers))
+            ~init:([],ss_c)
+            (List.concat_map
+               ~f:(fun (i,j) -> range i (j+1))
+               cs)
+        in
+        if List.length leftovers <> 0 then
+          unexpected_failure
+            (String.of_char (fst (List.hd_exn leftovers)));
+        ExampledRegex.mk_union
+          ~openable:OpenableData.True
+          recs
+          (List.map ~f:snd ss_c)
+
+      | Seq (r1,r2) ->
+        to_exampled_seq_regex_internal
+          under_closed
+          r1
+          r2
+          ss
+      | Alt rs ->
+        to_exampled_alt_regex_internal
+          under_closed
+          rs
+          ss
+      | Rep (r,i1,i2o) ->
+        if i1 = 0 then
+          begin match i2o with
+            | None ->
+              if under_closed || not (iterable r) then
+                let (exs,ill) = List.unzip ss in
+                let openable = OpenableData.mk_false exs in
+                let r_normalized = to_exampled_regex_internal true r [] in
+                ExampledRegex.mk_star
+                   ~openable:openable
+                   r_normalized
+                   ill
+              else
+                let (sss,ill) =
+                  List.unzip
+                    (List.map
+                       ~f:(fun (s,il) ->
+                           let ss = 
+                             List.mapi
+                               ~f:(fun i s -> (s,i::il))
+                               (star_split r s)
+                           in
+                           (ss,il))
+                       ss)
+                in
+                let ss = List.concat sss in
+                let r_normalized = to_exampled_regex_internal false r ss in
+                ExampledRegex.mk_star
+                  ~openable:OpenableData.mk_true
+                  r_normalized
+                  ill 
+            | Some k ->
+              if k = 0 then
+                ExampledRegex.mk_base "" (List.map ~f:snd ss)
+              else if k = 1 then
+                to_exampled_alt_regex_internal
+                  under_closed
+                  [mk_string "";r]
+                  ss
+              else if k > 0 then
+                let left = mk_alt (mk_string "") r in
+                let right = mk_rep r 0 (Some (k-1)) in
+                to_exampled_alt_regex_internal
+                  under_closed
+                  [left;right]
+                  ss
+              else
+                Berror.run_error
+                  (Hbase.Info.M "synth: found a rep with a negative")
+                  (fun () -> print_endline (string_of_int i1))
+          end
+        else if i1 > 0 then
+          to_exampled_seq_regex_internal
+            under_closed
+            r
+            (mk_rep r (i1-1) (Option.map ~f:(fun x -> x-1) i2o))
+            ss
+        else
+          Berror.run_error
+            (Hbase.Info.M "synth: found a rep with a negative")
+            (fun () -> print_endline (string_of_int i1))
+      | Inter rs ->
+        failwith "TODO 3"
+
+      | Diff (r1,r2) ->
+        failwith "TODO 4"
+    end
+  and to_exampled_seq_regex_internal
+      (under_closed:bool)
+      (r1:t)
+      (r2:t)
+      (ss:(string * (int list)) list)
+    : ExampledRegex.t =
+    if under_closed || not (splittable r1 r2) then
+      let (exs,ill) = List.unzip ss in
+      let openable = OpenableData.mk_false exs in
+      let r1_normalized = to_exampled_regex_internal true r1 [] in
+      let r2_normalized = to_exampled_regex_internal true r2 [] in
+      ExampledRegex.mk_concat
+        ~openable:openable
+        r1_normalized
+        r2_normalized
+        ill
+    else
+      let (ss1,ss2,ill) =
+        List.unzip3
+          (List.map
+             ~f:(fun (s,il) ->
+                 let (s1,s2) = Option.value_exn (seq_split r1 r2 s) in
+                 ((s1,il) , (s2,il) , il))
+             ss)
+      in
+      let r1_normalized = to_exampled_regex_internal false r1 ss1 in
+      let r2_normalized = to_exampled_regex_internal false r2 ss2 in
+      ExampledRegex.mk_concat
+        ~openable:OpenableData.mk_true
+        r1_normalized
+        r2_normalized
+        ill 
+  and to_exampled_alt_regex_internal
+      (under_closed:bool)
+      (rs:t list)
+      (ss:(string * (int list)) list)
+    : ExampledRegex.t =
+    if under_closed || not (pairwise_disjoint rs) then
+      let (exs,ill) = List.unzip ss in
+      let openable = OpenableData.mk_false exs in
+      let rs_normalized =
+        List.map
+          ~f:(fun r -> to_exampled_regex_internal true r [])
+          rs
+      in
+      ExampledRegex.mk_union
+        ~openable:openable
+        rs_normalized
+        ill
+    else
+      let ill = List.map ~f:snd ss in
+      let rs_ss =
+        List.fold_right
+          ~f:(fun (s,il) rs_ss ->
+              List.map
+                ~f:(fun (r,ss) ->
+                    if match_string r s then
+                      (r,(s,il)::ss)
+                    else
+                      (r,ss))
+                rs_ss)
+          ~init:(List.map ~f:(fun r -> (r,[])) rs)
+          ss
+      in
+      let rs_normalized =
+        List.map
+          ~f:(fun (r,ss) -> to_exampled_regex_internal false r ss)
+          rs_ss
+      in
+      ExampledRegex.mk_union
+        ~openable:OpenableData.mk_true
+        rs_normalized
+        ill
+        
+  in
+
+
+  to_exampled_regex_internal
+    false
+    r
+    (List.mapi ~f:(fun i x -> (x,[i])) ss)
 

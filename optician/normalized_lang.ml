@@ -4,6 +4,284 @@ open Lang
 
 (**** Exampled Regex {{{ *****)
 
+module OpenableData =
+struct
+  type t = 
+    | False of string list
+    | True
+  [@@deriving ord, show, hash]
+
+  let mk_true : t = True
+
+  let mk_false
+      (ss:string list)
+    : t =
+    False ss
+
+  let strings_exn
+    (t:t)
+    : string list =
+    begin match t with
+      | False ss -> ss
+      | True -> failwith "expected false openable"
+    end
+
+  let is_true
+      (t:t)
+    : bool =
+    begin match t with
+      | True -> true
+      | _ -> false
+    end
+
+  let is_false
+      (t:t)
+    : bool =
+    not (is_true t)
+end
+
+module ExampledRegex =
+struct
+  type ill = int list list
+  [@@deriving ord, show, hash]
+
+  type d = 
+    | ERegExBase   of string
+    | ERegExConcat of t * t
+    | ERegExUnion  of t list
+    | ERegExStar   of t
+    | ERegExInter  of t list
+    | ERegExDiff   of t * t
+
+  and t =
+    {
+      desc     : d              ;
+      ill      : ill            ;
+      opened   : bool           ;
+      openable : OpenableData.t ;
+    }
+  [@@deriving ord, show, hash]
+
+  let mk_t
+      ~desc:(desc:d)
+      ~ill:(ill:ill)
+      ~opened:(opened:bool)
+      ~openable:(openable:OpenableData.t)
+    : t =
+    {
+      desc     = desc     ;
+      ill      = ill      ;
+      opened   = false    ;
+      openable = openable ;
+    }
+
+  let mk_empty : t =
+    let d = ERegExUnion [] in
+    mk_t
+      ~desc:d
+      ~ill:[]
+      ~opened:true
+      ~openable:OpenableData.mk_true
+
+  let mk_base
+      ~ill:ill
+      (s:string)
+    : t =
+    let d = ERegExBase s in
+    mk_t
+      ~desc:d
+      ~ill:ill
+      ~opened:true
+      ~openable:OpenableData.mk_true
+
+  let mk_concat
+      ~ill:(ill:ill)
+      ?opened:(opened:bool = false)
+      ~openable:(openable:OpenableData.t)
+      (r1:t)
+      (r2:t)
+    : t =
+    begin match (r1.desc,r2.desc) with
+      | (ERegExBase "", _) ->
+        assert (r1.ill = ill);
+        r2
+      | (_, ERegExBase "") ->
+        assert (r2.ill = ill);
+        r1
+      | (ERegExBase s1, ERegExBase s2) ->
+        assert (r1.ill = r2.ill && ill = r1.ill);
+        mk_base ~ill:ill (s1^s2)
+      | _ ->
+        let d = ERegExConcat (r1,r2) in
+        mk_t
+          ~ill:ill
+          ~desc:d
+          ~opened:false
+          ~openable:openable
+    end
+
+  let mk_union
+      ~ill:(ill:ill)
+      ?opened:(opened:bool = false)
+      ~openable:(openable:OpenableData.t)
+      (rs:t list)
+    : t =
+    begin match rs with
+      | [] ->
+        mk_empty
+      | [r] -> r
+      | _ ->
+        let d = ERegExUnion rs in
+        mk_t
+          ~ill:ill
+          ~desc:d
+          ~opened:opened
+          ~openable:openable
+    end
+
+  let mk_star
+      ~ill:(ill:ill)
+      ?opened:(opened:bool = false)
+      ~openable:(openable:OpenableData.t)
+      (r:t)
+    : t =
+    begin match r.desc with
+      | ERegExUnion [] ->
+        mk_base ~ill:ill ""
+      | _ ->
+        let d = ERegExStar r in
+        mk_t
+          ~ill:ill
+          ~desc:d
+          ~opened:opened
+          ~openable:openable
+    end
+
+  let mk_diff
+      ~ill:(ill:ill)
+      (r1:t)
+      (r2:t)
+      (ss:string list)
+    : t =
+    let d = ERegExDiff (r1,r2) in
+    mk_t
+      ~ill:ill
+      ~desc:d
+      ~opened:false
+      ~openable:(OpenableData.mk_false ss)
+
+  let mk_inter
+      ~ill:(ill:ill)
+      (rs:t list)
+      (ss:string list)
+    : t =
+    let d = ERegExInter rs in
+    mk_t
+      ~ill:ill
+      ~desc:d
+      ~opened:false
+      ~openable:(OpenableData.mk_false ss)
+
+  type 'a datad = ill:ill -> opened:bool -> openable:OpenableData.t -> 'a
+
+  let ignore_data
+      (x:'a)
+    : 'a datad =
+    fun ~ill:_ ~opened:_ ~openable:_ -> x
+
+  let fold_downward_upward
+      (type a)
+      (type b)
+      ~init:(init:b)
+      ~upward_base:(upward_base:(b -> string -> a) datad)
+      ~upward_concat:(upward_concat:(b -> a -> a -> a) datad)
+      ~upward_union:(upward_union:(b -> a list -> a) datad)
+      ~upward_star:(upward_star:(b -> a -> a) datad)
+      ~upward_diff:(upward_diff:(b -> a -> a -> a) datad)
+      ~upward_inter:(upward_inter:(b -> a list -> a) datad)
+      ?downward_concat:(downward_concat:(b -> b) datad = ignore_data ident)
+      ?downward_union:(downward_union:(b -> b) datad = ignore_data ident)
+      ?downward_star:(downward_star:(b -> b) datad = ignore_data ident)
+      ?downward_diff:(downward_diff:(b -> b) datad = ignore_data ident)
+      ?downward_inter:(downward_inter:(b -> b) datad = ignore_data ident)
+    : t -> a =
+    let rec fold_downward_upward_internal
+        (downward_acc:b)
+        (r:t)
+      : a =
+      let openable = r.openable in
+      let opened = r.opened in
+      let ill = r.ill in
+      let apply_openness x = x ~ill:ill ~opened:opened ~openable:openable in
+      begin match r.desc with
+        | ERegExBase s ->
+          apply_openness upward_base downward_acc s
+        | ERegExConcat (r1,r2) ->
+          let downward_acc' = apply_openness downward_concat downward_acc in
+          (apply_openness upward_concat)
+            downward_acc
+            (fold_downward_upward_internal downward_acc' r1)
+            (fold_downward_upward_internal downward_acc' r2)
+        | ERegExUnion rs ->
+          let downward_acc' = apply_openness downward_union downward_acc in
+          (apply_openness upward_union)
+            downward_acc
+            (List.map ~f:(fold_downward_upward_internal downward_acc') rs)
+        | ERegExStar r' ->
+          let downward_acc' = apply_openness downward_star downward_acc in
+          (apply_openness upward_star)
+            downward_acc
+            (fold_downward_upward_internal downward_acc' r')
+        | ERegExDiff (r1,r2) ->
+          let downward_acc' = apply_openness downward_diff downward_acc in
+          (apply_openness upward_diff)
+            downward_acc
+            (fold_downward_upward_internal downward_acc' r1)
+            (fold_downward_upward_internal downward_acc' r2)
+        | ERegExInter (rs) ->
+          let downward_acc' = apply_openness downward_inter downward_acc in
+          (apply_openness upward_inter)
+            downward_acc
+            (List.map ~f:(fold_downward_upward_internal downward_acc') rs)
+      end
+    in
+    fold_downward_upward_internal init
+
+  let fold
+      (type a)
+      ~base_f:(base_f:(string -> a) datad)
+      ~concat_f:(concat_f:(a -> a -> a) datad)
+      ~union_f:(union_f:(a list -> a) datad)
+      ~star_f:(star_f:(a -> a) datad)
+      ~diff_f:(diff_f:(a -> a -> a) datad)
+      ~inter_f:(inter_f:(a list -> a) datad)
+      (r:t)
+    : a =
+    let thunk_inside
+        (type a)
+        (f:a datad)
+      : (unit -> a) datad =
+      let tf
+          ~ill:ill
+          ~opened:opened
+          ~openable:openable
+          () =
+        f ~ill:ill ~opened:opened ~openable:openable
+      in
+      tf
+    in
+
+    fold_downward_upward
+      ~init:()
+      ~upward_base:(thunk_inside base_f)
+      ~upward_concat:(thunk_inside concat_f)
+      ~upward_union:(thunk_inside union_f)
+      ~upward_star:(thunk_inside star_f)
+      ~upward_diff:(thunk_inside diff_f)
+      ~upward_inter:(thunk_inside inter_f)
+      r
+end 
+
 type exampled_regex =
   | ERegExEmpty
   | ERegExBase of string * (int list list)

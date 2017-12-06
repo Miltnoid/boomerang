@@ -194,6 +194,12 @@ let map_right alt1 f = match alt1 with
   | Right r -> f r
   | l -> l
 
+let is_left alt = match alt with
+  | Left l -> true
+  | _ -> false
+
+let is_right alt = not (is_left alt)
+
 (* ------------- String/Char utilities --------------- *)
 
 (* Based on String.escape 

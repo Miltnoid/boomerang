@@ -366,6 +366,19 @@ let cartesian_map ~f:(f:'a -> 'b -> 'c) (l1:'a list) (l2:'b list) : 'c list =
     ~init:[]
     l1)
 
+let cartesian_map_list
+    (type a)
+    (type b)
+    ~f:(f:a list -> b)
+    (ls:a list list)
+  : 'b list =
+  begin match ls with
+    | [] -> []
+    | h::t -> failwith "TODO"
+  end
+
+
+
 let range (i:int) (j:int) : int list =
   let rec aux n acc =
     if n < i then acc else aux (n-1) (n::acc)
@@ -498,6 +511,21 @@ let fold_on_head_with_default (f:'a -> 'a -> 'a) (d:'a) (l:'a list) : 'a =
   begin match l with
     | [] -> d
     | _ -> fold_on_head_exn f l
+  end
+
+let fold_left_special_empty
+    ~f:(f:'b -> 'a -> 'b)
+    ~init_f:(init_f:'a -> 'b)
+    ~empty:(empty:'b)
+    (l:'a list)
+  : 'b =
+  begin match l with
+    | [] -> empty
+    | h::t ->
+      List.fold_left
+        ~f:f
+        ~init:(init_f h)
+        t
   end
 
 let weld_lists (f: 'a -> 'a -> 'a) (l1:'a list) (l2:'a list) : 'a list =
