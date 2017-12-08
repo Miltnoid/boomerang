@@ -4,6 +4,7 @@ open Regexcontext
 open Regex_utilities
 open Lenscontext
 
+(*
 let retrieve_transitive_referenced_lenses
     (lc:LensContext.t)
     (l:Lens.t)
@@ -30,8 +31,7 @@ let retrieve_transitive_referenced_lenses
       | Lens.LensIdentity _ -> []
       | Lens.LensInverse l' ->
         retrieve_transitive_referenced_lenses_internal l'
-      | Lens.LensVariable v ->
-        let l' = LensContext.lookup_impl_exn lc v in
+      | Lens.LensDist l' ->
         l'::
         (retrieve_transitive_referenced_lenses_internal
            l')
@@ -43,6 +43,7 @@ let retrieve_transitive_referenced_lenses
   in
   l::
   (retrieve_transitive_referenced_lenses_internal l)
+*)
 
 let rec apply_at_every_level_lens (f:Lens.t -> Lens.t) (l:Lens.t) : Lens.t =
   let l =
@@ -64,6 +65,7 @@ let rec apply_at_every_level_lens (f:Lens.t -> Lens.t) (l:Lens.t) : Lens.t =
   in
   f l
 
+(*
 let rec make_lens_safe_in_smaller_context
     (rc_smaller:RegexContext.t)
     (rc_larger:RegexContext.t)
@@ -103,7 +105,8 @@ let rec make_lens_safe_in_smaller_context
       let l' = make_lens_safe_in_smaller_context rc_smaller rc_larger l' in
       Lens.LensInverse l'
     | Lens.LensVariable _ -> l
-  end
+  end 
+*)
 
 let distribute_inverses : Lens.t -> Lens.t =
   let distribute_inverses_current_level (l:Lens.t) : Lens.t =
@@ -126,8 +129,6 @@ let distribute_inverses : Lens.t -> Lens.t =
             Lens.LensIdentity r
           | Lens.LensInverse l'' ->
             l''
-          | Lens.LensVariable _ ->
-            l
           | Lens.LensPermute (p,ls) ->
             Lens.LensPermute (Permutation.inverse p, ls)
         end
@@ -264,7 +265,6 @@ let simplify_lens : Lens.t -> Lens.t =
           | Lens.LensInverse l' ->
             let l' = merge_ored_beneath l' in
             (Some (Lens.LensInverse l'), None)
-          | Lens.LensVariable _ -> (Some l, None)
           | Lens.LensPermute (p,ls) ->
             let ls = List.map ~f:merge_ored_beneath ls in
             (Some (Lens.LensPermute (p,ls)), None)

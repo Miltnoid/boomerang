@@ -1,7 +1,6 @@
 open Stdlib
 open Lenscontext
 open Converter
-open Regexcontext
 open Lang
 open Regex_utilities
 open Lens_utilities
@@ -16,7 +15,6 @@ module PQ = PriorityQueueOf(QueueElement)
 module type LENS_SYNTHESIZER =
 sig
   val gen_lens :
-    RegexContext.t ->
     LensContext.t ->
     Regex.t ->
     Regex.t ->
@@ -56,7 +54,7 @@ struct
       (atom2:ordered_exampled_atom)
     : atom_lens =
     begin match (atom1,atom2) with
-      | (OEAVar (_,sorig1,_,_),OEAVar (_,sorig2,_,_)) ->
+      | (OEADist (_,sorig1,_,_),OEADist (_,sorig2,_,_)) ->
         AtomLensVariable (LensContext.shortest_path_exn lc sorig1 sorig2)
       | (OEAStar r1, OEAStar r2) ->
         AtomLensIterate (gen_dnf_lens_zipper_internal lc r1 r2)
@@ -114,7 +112,6 @@ struct
     (clause_lenses,Permutation.create_from_doubles_unsafe perm_parts)
 
   let rigid_synth
-      (rc:RegexContext.t)
       (lc:LensContext.t)
       (qe:QueueElement.t)
       (exs:examples)
@@ -126,8 +123,8 @@ struct
       None
     else
       let (lexs,rexs) = List.unzip exs in
-      let exampled_r1_opt = regex_to_exampled_dnf_regex rc lc r1 lexs in
-      let exampled_r2_opt = regex_to_exampled_dnf_regex rc lc r2 rexs in
+      let exampled_r1_opt = regex_to_exampled_dnf_regex lc r1 lexs in
+      let exampled_r2_opt = regex_to_exampled_dnf_regex lc r2 rexs in
       begin match (exampled_r1_opt,exampled_r2_opt) with
         | (Some exampled_r1,Some exampled_r2) ->
           let e_o_r1 = to_ordered_exampled_dnf_regex exampled_r1 in
@@ -149,7 +146,6 @@ struct
       end
 
   let gen_dnf_lens_and_info_zipper
-      (rc:RegexContext.t)
       (lc:LensContext.t)
       (r1:Regex.t)
       (r2:Regex.t)
@@ -179,7 +175,6 @@ struct
              print_endline ("\n\n\n"));
           let result_o =
             rigid_synth
-              rc
               lc
               qe
               exs
@@ -190,7 +185,6 @@ struct
             | None ->
               let queue_elements = 
                 expand
-                  rc
                   lc
                   qe
               in
@@ -213,61 +207,55 @@ struct
            ])
 
 
-  let gen_dnf_lens (rc:RegexContext.t) (lc:LensContext.t) (r1:Regex.t) (r2:Regex.t)
+  let gen_dnf_lens (lc:LensContext.t) (r1:Regex.t) (r2:Regex.t)
       (exs:examples)
     : dnf_lens option =
-    Option.map ~f:(fun x -> x.l) (gen_dnf_lens_and_info_zipper rc lc r1 r2 exs)
+    Option.map ~f:(fun x -> x.l) (gen_dnf_lens_and_info_zipper lc r1 r2 exs)
 
   let expansions_performed_for_gen
-      (rc:RegexContext.t)
       (lc:LensContext.t)
       (r1:Regex.t)
       (r2:Regex.t)
       (exs:examples)
     : int option =
-    Option.map ~f:(fun x -> x.expansions_performed) (gen_dnf_lens_and_info_zipper rc lc r1 r2 exs)
+    Option.map ~f:(fun x -> x.expansions_performed) (gen_dnf_lens_and_info_zipper lc r1 r2 exs)
 
   let specs_visited_for_gen
-      (rc:RegexContext.t)
       (lc:LensContext.t)
       (r1:Regex.t)
       (r2:Regex.t)
       (exs:examples)
     : int option =
-    Option.map ~f:(fun x -> x.specs_visited) (gen_dnf_lens_and_info_zipper rc lc r1 r2 exs)
+    Option.map ~f:(fun x -> x.specs_visited) (gen_dnf_lens_and_info_zipper lc r1 r2 exs)
 
   let expansions_inferred_for_gen
-      (rc:RegexContext.t)
       (lc:LensContext.t)
       (r1:Regex.t)
       (r2:Regex.t)
       (exs:examples)
     : int option =
-    Option.map ~f:(fun x -> x.expansions_inferred) (gen_dnf_lens_and_info_zipper rc lc r1 r2 exs)
+    Option.map ~f:(fun x -> x.expansions_inferred) (gen_dnf_lens_and_info_zipper lc r1 r2 exs)
 
   let expansions_forced_for_gen
-      (rc:RegexContext.t)
       (lc:LensContext.t)
       (r1:Regex.t)
       (r2:Regex.t)
       (exs:examples)
     : int option =
-    Option.map ~f:(fun x -> x.expansions_forced) (gen_dnf_lens_and_info_zipper rc lc r1 r2 exs)
+    Option.map ~f:(fun x -> x.expansions_forced) (gen_dnf_lens_and_info_zipper lc r1 r2 exs)
 
   let gen_lens
-      (rc:RegexContext.t)
       (lc:LensContext.t)
       (r1:Regex.t)
       (r2:Regex.t)
       (exs:examples)
     : Lens.t option =
-      let dnf_lens_option = gen_dnf_lens rc lc r1 r2 exs in
+      let dnf_lens_option = gen_dnf_lens lc r1 r2 exs in
       Option.map
         ~f:dnf_lens_to_lens
         dnf_lens_option
 
   let num_possible_choices
-      (rc:RegexContext.t)
       (lc:LensContext.t)
       (r1:Regex.t)
       (r2:Regex.t)
@@ -297,14 +285,14 @@ struct
         (oea:ordered_exampled_atom)
       : float =
       begin match oea with
-      | OEAVar _ -> 1.0
+      | OEADist _ -> 1.0
       | OEAStar dr ->
         get_possibible_lenses_oedr dr
       end
     in
     Option.map
       ~f:(fun x -> get_possibible_lenses_oedr x.oedr1)
-      (gen_dnf_lens_and_info_zipper rc lc r1 r2 exs)
+      (gen_dnf_lens_and_info_zipper lc r1 r2 exs)
 end
 
 let expansions_performed_for_gen = DNFSynth.expansions_performed_for_gen
@@ -314,7 +302,6 @@ let expansions_forced_for_gen = DNFSynth.expansions_forced_for_gen
 let num_possible_choices = DNFSynth.num_possible_choices
 
 let gen_lens
-    (rc:RegexContext.t)
     (lc:LensContext.t)
     (r1:Regex.t)
     (r2:Regex.t)
@@ -322,16 +309,13 @@ let gen_lens
   : Lens.t option =
   if !verbose then
     print_endline "Synthesis Start";
-  let rc_orig = rc in
-  let lens_option = DNFSynth.gen_lens rc lc r1 r2 exs in
+  let lens_option = DNFSynth.gen_lens lc r1 r2 exs in
   if !verbose then
     print_endline "Synthesis End";
   if !simplify_generated_lens then
     Option.map
-      ~f:(simplify_lens % (make_lens_safe_in_smaller_context rc_orig rc))
+      ~f:(simplify_lens)
       lens_option
   else
-    Option.map
-      ~f:((make_lens_safe_in_smaller_context rc_orig rc))
-      lens_option
+    lens_option
 

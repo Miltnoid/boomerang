@@ -238,6 +238,12 @@ expressions. The infix symbol @-@ desugars into @diff@.
 #* let diff : regexp -> regexp -> regexp 
 ## = Native.Prelude.diff
 
+\LENSSECTION{@dist@} The @dist@ designates a regexp as being useful for
+synthesis. 
+
+#* let dist : regexp -> regexp 
+## = Native.Prelude.dist
+
 \LENSSECTION{@matches@,@matches_cex@} The @matches@ function tests if a string
 belongs to the language denoted by a regular expression.
 

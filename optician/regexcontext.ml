@@ -90,6 +90,12 @@ module RegexContext = struct
 
     let size (rc:t) : int =
       D.size rc
+
+    let union (rc1:t) (rc2:t) : t =
+      D.merge_to_dict
+        ~combiner:(fun v1 v2 -> assert (v1 = v2); v1)
+        rc1
+        rc2
 end
 
 (***** }}} *****)

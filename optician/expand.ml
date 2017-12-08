@@ -8,105 +8,104 @@ open Consts
 (***** Helper Functions {{{ *****)
 let get_rep_var
     (lc:LensContext.t)
-    (ud:Id.t)
-  : Id.t =
+    (ud:Regex.t)
+  : Regex.t =
   if !use_lens_context then
     (fst (LensContext.shortest_path_to_rep_elt lc ud))
   else
     ud
 
 let star_depth_regex_fold
-    ~init_depth:(init_depth:int)
     ~empty_f:(empty_f:int -> 'a)
     ~base_f:(base_f:int -> string -> 'a)
     ~concat_f:(concat_f:int -> 'a -> 'a -> 'a)
     ~or_f:(or_f:int -> 'a -> 'a -> 'a)
     ~star_f:(star_f:int -> 'a -> 'a)
-    ~var_f:(var_f:int -> Id.t -> 'a)
+    ~dist_f:(dist_f:int -> 'a -> 'a)
     (r:Regex.t)
   : 'a =
   Regex.fold_downward_upward
-    ~init:init_depth
+    ~init:0
     ~upward_empty:empty_f
     ~upward_base:base_f
     ~upward_concat:concat_f
     ~upward_or:or_f
     ~upward_star:star_f
-    ~upward_var:var_f
+    ~upward_dist:dist_f
     ~downward_star:(fun d -> d+1)
     r
 
 (***** }}} *****)
 
 (**** GetSets {{{ *****)
-module IdSet = SetOf(Id)
+module RegexSet = SetOf(Regex)
 
 module IntSet = SetOf(IntModule)
 
-module IdIntSet = SetOf(PairOf(Id)(IntModule))
+module RegexIntSet = SetOf(PairOf(Regex)(IntModule))
 
-module IdToIntSetDict = DictOf(Id)(IntSet)
+module RegexToIntSetDict = DictOf(Regex)(IntSet)
 
 let get_current_set
     (lc:LensContext.t)
-  : Regex.t -> IdIntSet.t =
-    Regex.fold
-      ~empty_f:IdIntSet.empty
-      ~base_f:(fun _ -> IdIntSet.empty)
-      ~concat_f:(fun s1 s2 ->
-          IdIntSet.union
-            s1
-            s2)
-      ~or_f:(fun s1 s2 ->
-          IdIntSet.union
-            s1
-            s2)
-      ~star_f:(fun s -> IdIntSet.map ~f:(fun (v,i) -> (v,i+1)) s)
-      ~var_f:(fun v ->
-          let v' = get_rep_var lc v in
-          IdIntSet.singleton (v',0))
+  : Regex.t -> RegexIntSet.t =
+  snd %
+  star_depth_regex_fold
+    ~empty_f:(fun _ -> (Regex.RegExEmpty,RegexIntSet.empty))
+    ~base_f:(fun _ b -> (Regex.RegExBase b,RegexIntSet.empty))
+    ~concat_f:(fun _ (r1,s1) (r2,s2) ->
+        (Regex.RegExConcat
+           (r1,r2)
+        ,RegexIntSet.union
+          s1
+          s2))
+    ~or_f:(fun _ (r1,s1) (r2,s2) ->
+        (Regex.RegExOr
+           (r1,r2)
+        ,RegexIntSet.union
+          s1
+          s2))
+    ~star_f:(fun _ (r,s) ->
+        (Regex.RegExStar r
+        ,s))
+    ~dist_f:(fun i (r,_) ->
+        let r = Regex.RegExDist r in
+        let r' = get_rep_var lc r in
+        (r,RegexIntSet.singleton (r',i)))
 
 let rec get_transitive_set
-    (rc:RegexContext.t)
     (lc:LensContext.t)
-  : Regex.t -> IdToIntSetDict.t =
-  let rec get_transitive_set_internal
-      (star_depth:int)
-    : Regex.t -> IdToIntSetDict.t =
-    star_depth_regex_fold
-      ~init_depth:star_depth
-      ~empty_f:(fun _ -> IdToIntSetDict.empty)
-      ~base_f:(fun _ _ -> IdToIntSetDict.empty)
-      ~concat_f:(fun _ s1 s2 ->
-          IdToIntSetDict.merge_to_dict
+  : Regex.t -> RegexToIntSetDict.t =
+  snd %
+  star_depth_regex_fold
+    ~empty_f:(fun _ -> (Regex.RegExEmpty,RegexToIntSetDict.empty))
+    ~base_f:(fun _ s -> (Regex.RegExBase s,RegexToIntSetDict.empty))
+    ~concat_f:(fun _ (r1,s1) (r2,s2) ->
+        (Regex.RegExConcat (r1,r2)
+        ,RegexToIntSetDict.merge_to_dict
             ~combiner:IntSet.union
             s1
-            s2)
-      ~or_f:(fun _ s1 s2 ->
-          IdToIntSetDict.merge_to_dict
+            s2))
+    ~or_f:(fun _ (r1,s1) (r2,s2) ->
+        (Regex.RegExOr (r1,r2)
+        ,RegexToIntSetDict.merge_to_dict
             ~combiner:IntSet.union
             s1
-            s2)
-      ~star_f:(fun _ -> ident)
-      ~var_f:(fun star_depth v ->
-          let iterative_values =
-            begin match RegexContext.lookup_for_expansion_exn rc v with
-              | None -> IdToIntSetDict.empty
-              | Some r -> get_transitive_set_internal star_depth r
-            end
-          in
-          IdToIntSetDict.insert_or_merge
-            ~merge:IntSet.union
-            iterative_values
-            (get_rep_var lc v)
-            (IntSet.singleton star_depth))
-  in
-  get_transitive_set_internal 0
+            s2))
+    ~star_f:(fun _ (r,s) -> (Regex.RegExStar r, s))
+    ~dist_f:(fun star_depth (r,s) ->
+        let r = Regex.RegExDist r in
+        (r
+        ,(RegexToIntSetDict.insert_or_merge
+          ~merge:IntSet.union
+          s
+          (get_rep_var lc r)
+          (IntSet.singleton star_depth))))
 
 let reachables_set_minus
-    (set1:IdToIntSetDict.t)
-    (set2:IdToIntSetDict.t)
-  : IdIntSet.t * IdIntSet.t =
+    (set1:RegexToIntSetDict.t)
+    (set2:RegexToIntSetDict.t)
+  : RegexIntSet.t * RegexIntSet.t =
   let set_combiner
       (s1:IntSet.t)
       (s2:IntSet.t)
@@ -132,7 +131,7 @@ let reachables_set_minus
               s1))
   in
   let problem_elts_options_list =
-    IdToIntSetDict.merge
+    RegexToIntSetDict.merge
       ~combiner:set_combiner
       ~only_d1_fn:(fun s -> Some (Left s))
       ~only_d2_fn:(fun s -> Some (Right s))
@@ -156,16 +155,16 @@ let reachables_set_minus
       problem_elts_list
   in
   pair_apply
-    ~f:(fun (kss:(Id.t * IntSet.t) list) ->
+    ~f:(fun (kss:(Regex.t * IntSet.t) list) ->
         List.fold_left
-          ~f:(fun (acc:IdIntSet.t) ((k,s):(Id.t * IntSet.t)) ->
+          ~f:(fun (acc:RegexIntSet.t) ((k,s):(Regex.t * IntSet.t)) ->
               IntSet.fold
-                ~f:(fun (i:int) (acc:IdIntSet.t) ->
-                    IdIntSet.insert (k,i) acc)
+                ~f:(fun (i:int) (acc:RegexIntSet.t) ->
+                    RegexIntSet.insert (k,i) acc)
                 ~init:acc
                 s
             )
-          ~init:IdIntSet.empty
+          ~init:RegexIntSet.empty
           kss)
     lr_problem_elts
 
@@ -178,39 +177,37 @@ let reachables_set_minus
 
 (**** ForceExpand {{{ *****)
 let force_expand
-    (rc:RegexContext.t)
     (lc:LensContext.t)
-    (problem_elts:IdIntSet.t)
-  : Regex.t -> (Regex.t * int) =
-  let rec force_expand_internal
-      (star_depth:int)
-      (r:Regex.t)
-    : (Regex.t * int) =
+    (problem_elts:RegexIntSet.t)
+    (r:Regex.t)
+  : Regex.t * int =
+  let (_,r,i) =
     star_depth_regex_fold
-      ~init_depth:star_depth
-      ~empty_f:(fun _ -> (Regex.make_empty,0))
-      ~base_f:(fun _ s -> (Regex.make_base s,0))
-      ~concat_f:(fun _ (lr,le) (rr,re) ->
-          (Regex.make_concat lr rr, le+re))
-      ~or_f:(fun _ (lr,le) (rr,re) ->
-          (Regex.make_or lr rr, le+re))
-      ~star_f:(fun _ (r,e) ->
-          (Regex.make_star r, e))
-      ~var_f:(fun star_depth v ->
-            if IdIntSet.member problem_elts (get_rep_var lc v,star_depth) then
-              let r =
-                Option.value_exn
-                  (RegexContext.lookup_for_expansion_exn
-                     rc
-                     v)
-              in
-              let (r,e) = force_expand_internal star_depth r in
-              (r,e+1)
-            else
-              (Regex.make_var v,0))
+      ~empty_f:(fun _ -> (Regex.make_empty,Regex.make_empty,0))
+      ~base_f:(fun _ s -> (Regex.make_base s,Regex.make_base s,0))
+      ~concat_f:(fun _ (lr1,lr2,le) (rr1,rr2,re) ->
+          (Regex.make_concat lr1 rr1
+          ,Regex.make_concat lr2 rr2
+          ,le+re))
+      ~or_f:(fun _ (lr1,lr2,le) (rr1,rr2,re) ->
+          (Regex.make_or lr1 rr1
+          ,Regex.make_or lr2 rr2
+          ,le+re))
+      ~star_f:(fun _ (r1,r2,e) ->
+          (Regex.make_star r1
+          ,Regex.make_star r2
+          ,e))
+      ~dist_f:(fun star_depth (r1,r2,e) ->
+          let r1 = Regex.make_dist r1 in
+          if RegexIntSet.member
+              problem_elts
+              (get_rep_var lc r1,star_depth) then
+            (r1,r2,e+1)
+          else
+            (Regex.make_dist r1, Regex.make_dist r2,0))
       r
   in
-  force_expand_internal 0
+  (r,i)
 (***** }}} *****)
 
 
@@ -218,32 +215,26 @@ let force_expand
 
 (**** Reveal {{{ *****)
 let rec reveal
-    (rc:RegexContext.t)
     (lc:LensContext.t)
-    (v:Id.t)
+    (v:Regex.t)
     (star_depth:int)
     (r:Regex.t)
   : (Regex.t * int) list =
   begin match r with
-    | Regex.RegExVariable v' ->
-      if get_rep_var lc v' = v && star_depth = 0 then
-        [(Regex.RegExVariable v',0)]
+    | Regex.RegExDist v' ->
+      if get_rep_var lc r = v && star_depth = 0 then
+        [(Regex.RegExDist v',0)]
       else
-        begin match RegexContext.lookup_for_expansion_exn rc v' with
-          | None -> []
-          | Some r' ->
-            List.map
-              ~f:(fun (r,exp) -> (r,exp+1))
-              (reveal
-                 rc
-                 lc
-                 v
-                 star_depth
-                 r')
-        end
+        List.map
+          ~f:(fun (r,exp) -> (r,exp+1))
+          (reveal
+             lc
+             v
+             star_depth
+             v')
     | Regex.RegExConcat (r1,r2) ->
-      let r1_exposes = reveal rc lc v star_depth r1 in
-      let r2_exposes = reveal rc lc v star_depth r2 in
+      let r1_exposes = reveal lc v star_depth r1 in
+      let r2_exposes = reveal lc v star_depth r2 in
       (List.map
          ~f:(fun (r1e,exp) -> (Regex.RegExConcat (r1e,r2),exp))
          r1_exposes)
@@ -252,8 +243,8 @@ let rec reveal
          ~f:(fun (r2e,exp) -> (Regex.RegExConcat (r1,r2e),exp))
          r2_exposes)
     | Regex.RegExOr (r1,r2) ->
-      let r1_exposes = reveal rc lc v star_depth r1 in
-      let r2_exposes = reveal rc lc v star_depth r2 in
+      let r1_exposes = reveal lc v star_depth r1 in
+      let r2_exposes = reveal lc v star_depth r2 in
       (List.map
          ~f:(fun (r1e,exp) -> (Regex.RegExOr (r1e,r2),exp))
          r1_exposes)
@@ -264,7 +255,6 @@ let rec reveal
     | Regex.RegExStar r' ->
       let r'_exposes_with_unfold =
         reveal
-          rc
           lc
           v
           star_depth
@@ -272,7 +262,6 @@ let rec reveal
       in
       let r'_exposes_underneath =
         reveal
-          rc
           lc
           v
           (star_depth-1)
@@ -301,17 +290,12 @@ let rec reveal
 
 (**** ExpandOnce {{{ *****)
 let expand_once
-    (rc:RegexContext.t)
     (qe:QueueElement.t)
   : QueueElement.t list =
   let expanders =
     [StarSemiring.left_unfold_all_stars regex_star_semiring
     ;StarSemiring.right_unfold_all_stars regex_star_semiring
-    ;Regex.applies_for_every_applicable_level
-        (fun r ->
-           option_bind
-             ~f:(RegexContext.lookup_for_expansion_exn rc)
-             (Regex.separate_var r))]
+    ;Regex.applies_for_every_applicable_level (fun r -> Regex.separate_dist r)]
   in
 
   let retrieve_new_problems_from_expander
@@ -351,27 +335,25 @@ let expand_once
 
 (**** ExpandRequired {{{ *****)
 let expand_required
-    (rc:RegexContext.t)
     (lc:LensContext.t)
     (r1:Regex.t)
     (r2:Regex.t)
   : (Regex.t * Regex.t * int) =
-  let r1_transitive_vars = get_transitive_set rc lc r1 in
-  let r2_transitive_vars = get_transitive_set rc lc r2 in
+  let r1_transitive_vars = get_transitive_set lc r1 in
+  let r2_transitive_vars = get_transitive_set lc r2 in
   let (left_unreachables,right_unreachables) =
     reachables_set_minus
       r1_transitive_vars
       r2_transitive_vars
   in
-  let (r1',e1) = force_expand rc lc left_unreachables r1 in
-  let (r2',e2) = force_expand rc lc right_unreachables r2 in
+  let (r1',e1) = force_expand lc left_unreachables r1 in
+  let (r2',e2) = force_expand lc right_unreachables r2 in
   (r1',r2',e1+e2)
 (***** }}} *****)
 
 
 (**** FixProblemElts {{{ *****)
 let fix_problem_elts
-    (rc:RegexContext.t)
     (lc:LensContext.t)
     (qe:QueueElement.t)
   : QueueElement.t list =
@@ -380,15 +362,14 @@ let fix_problem_elts
   let problem_elements =
     (List.map
        ~f:(fun e -> Left e)
-       (IdIntSet.as_list (IdIntSet.minus s1 s2)))
+       (RegexIntSet.as_list (RegexIntSet.minus s1 s2)))
     @
     (List.map
        ~f:(fun e -> Right e)
-       (IdIntSet.as_list (IdIntSet.minus s2 s1)))
+       (RegexIntSet.as_list (RegexIntSet.minus s2 s1)))
   in
   if List.is_empty problem_elements then
     expand_once
-      rc
       qe
   else
     let new_problems =
@@ -396,11 +377,11 @@ let fix_problem_elts
         ~f:(fun se ->
             begin match se with
               | Left (v,star_depth) ->
-                let exposes = reveal rc lc v star_depth (QueueElement.get_r2 qe) in
+                let exposes = reveal lc v star_depth (QueueElement.get_r2 qe) in
                 assert (not (List.is_empty exposes));
                 List.map ~f:(fun (e,exp) -> (QueueElement.get_r1 qe,e,exp)) exposes
               | Right (v,star_depth) ->
-                let exposes = reveal rc lc v star_depth (QueueElement.get_r1 qe) in
+                let exposes = reveal lc v star_depth (QueueElement.get_r1 qe) in
                 assert (not (List.is_empty exposes));
                 List.map ~f:(fun (e,exp) -> (e,QueueElement.get_r2 qe,exp)) exposes
             end)
@@ -418,18 +399,15 @@ let fix_problem_elts
 (***** }}} *****)
 
 let expand
-    (rc:RegexContext.t)
     (lc:LensContext.t)
     (qe:QueueElement.t)
   : QueueElement.t list =
   if (!use_naive_expansion_search) then
     expand_once
-      rc
       qe
   else
     let (r1,r2,exs) =
       expand_required
-        rc
         lc
         (QueueElement.get_r1 qe)
         (QueueElement.get_r2 qe)
@@ -445,10 +423,8 @@ let expand
       ]
     else if !use_only_forced_expansions then
       expand_once
-        rc
         qe
     else
       fix_problem_elts
-        rc
         lc
         qe

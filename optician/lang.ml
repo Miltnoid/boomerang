@@ -38,7 +38,7 @@ struct
     | RegExConcat of t * t
     | RegExOr of t * t 
     | RegExStar of t
-    | RegExVariable of Id.t
+    | RegExDist of t
   [@@deriving ord, show, hash]
 
   let one = RegExBase ""
@@ -69,11 +69,11 @@ struct
       | _ -> None
     end
 
-  let separate_var
+  let separate_dist
       (r:t)
-    : Id.t option =
+    : t option =
     begin match r with
-      | RegExVariable v -> Some v
+      | RegExDist r -> Some r
       | _ -> None
     end
 
@@ -96,15 +96,10 @@ struct
     : t =
     RegExStar r
 
-  let make_var
-      (v:Id.t)
+  let make_dist
+      (r:t)
     : t =
-    RegExVariable v
-
-  let make_var
-      (v:Id.t)
-    : t =
-    RegExVariable v
+    RegExDist r
 
   let make_plus = make_or
 
@@ -122,7 +117,7 @@ struct
       ~upward_concat:(upward_concat:'b -> 'a -> 'a -> 'a)
       ~upward_or:(upward_or:'b -> 'a -> 'a -> 'a)
       ~upward_star:(upward_star:'b -> 'a -> 'a)
-      ~upward_var:(upward_var:'b -> Id.t -> 'a)
+      ~upward_dist:(upward_dist:'b -> 'a -> 'a)
       ?downward_concat:(downward_concat:'b -> 'b = ident)
       ?downward_or:(downward_or:'b -> 'b = ident)
       ?downward_star:(downward_star:'b -> 'b = ident)
@@ -151,21 +146,25 @@ struct
           upward_star
             downward_acc
             (fold_downward_upward_internal downward_acc' r')
-        | RegExVariable v ->
-          upward_var downward_acc v
+        | RegExDist r' ->
+          let downward_acc' = downward_star downward_acc in
+          upward_dist
+            downward_acc
+            (fold_downward_upward_internal downward_acc' r')
       end
     in
     fold_downward_upward_internal init
 
   let fold
-      ~empty_f:(empty_f:'a)
-      ~base_f:(base_f:string -> 'a)
-      ~concat_f:(concat_f:'a -> 'a -> 'a)
-      ~or_f:(or_f:'a -> 'a -> 'a)
-      ~star_f:(star_f:'a -> 'a)
-      ~var_f:(var_f:Id.t -> 'a)
+      (type a)
+      ~empty_f:(empty_f:a)
+      ~base_f:(base_f:string -> a)
+      ~concat_f:(concat_f:a -> a -> a)
+      ~or_f:(or_f:a -> a -> a)
+      ~star_f:(star_f:a -> a)
+      ~dist_f:(dist_f:a -> a)
       (r:t)
-    : 'a =
+    : a =
     fold_downward_upward
       ~init:()
       ~upward_empty:(thunk_of empty_f)
@@ -173,7 +172,7 @@ struct
       ~upward_concat:(thunk_of concat_f)
       ~upward_or:(thunk_of or_f)
       ~upward_star:(thunk_of star_f)
-      ~upward_var:(thunk_of var_f)
+      ~upward_dist:(thunk_of dist_f)
       r
 
   let rec apply_at_every_level
@@ -186,7 +185,7 @@ struct
       ~concat_f:(fun r1 r2 -> f (RegExConcat (r1,r2)))
       ~or_f:(fun r1 r2 -> f (RegExOr (r1,r2)))
       ~star_f:(fun r' -> f (RegExStar r'))
-      ~var_f:(fun v -> f (RegExVariable v))
+      ~dist_f:(fun r' -> f (RegExDist r'))
       r
 
   let rec applies_for_every_applicable_level
@@ -240,10 +239,15 @@ struct
               r's
           in
           (star_r, level_contribution@recursed_inner))
-      ~var_f:(fun v ->
-          let var_r = RegExVariable v in
-          let level_contribution = option_to_empty_or_singleton (f var_r) in
-          (var_r, level_contribution))
+      ~dist_f:(fun (r',r's) ->
+          let dist_r = RegExDist r' in
+          let level_contribution = option_to_empty_or_singleton (f dist_r) in
+          let recursed_inner =
+            List.map
+              ~f:(fun r'' -> RegExDist r'')
+              r's
+          in
+          (dist_r, level_contribution@recursed_inner))
 
   let rec size
     : t -> int =
@@ -253,7 +257,7 @@ struct
       ~concat_f:(fun n1 n2 -> 1+n1+n2)
       ~or_f:(fun n1 n2 -> 1+n1+n2)
       ~star_f:(fun n -> 1+n)
-      ~var_f:(fun _ -> 1)
+      ~dist_f:(fun n -> 1+n)
 
 
 
@@ -283,7 +287,6 @@ struct
 		  if index > n then temp else
 			  helper (index + 1) (RegExOr(temp, iterate_n_times index r)) in
 	  if n < m then RegExEmpty else helper (m + 1) (iterate_n_times m r)
-
 end
 
 let regex_semiring = (module Regex : Semiring.Sig with type t = Regex.t)
@@ -306,9 +309,57 @@ struct
     | LensIterate of t
     | LensIdentity of Regex.t
     | LensInverse of t
-    | LensVariable of Id.t
     | LensPermute of (int list) (*Permutation.t*) * (t list)
   [@@deriving ord, show, hash]
+
+  let fold
+      (type a)
+      ~const_f:(const_f:string -> string -> a)
+      ~concat_f:(concat_f:a -> a -> a)
+      ~swap_f:(swap_f:a -> a -> a)
+      ~union_f:(union_f:a -> a -> a)
+      ~compose_f:(compose_f:a -> a -> a)
+      ~iterate_f:(iterate_f:a -> a)
+      ~identity_f:(identity_f:Regex.t -> a)
+      ~inverse_f:(inverse_f:a -> a)
+      ~permute_f:(permute_f:int list -> a list -> a)
+      (l:t)
+    : a =
+    let rec fold_internal
+        (l:t)
+      : a =
+      begin match l with
+        | LensConst(s1,s2) -> const_f s1 s2
+        | LensConcat(l1,l2) ->
+          let acc1 = fold_internal l1 in
+          let acc2 = fold_internal l2 in
+          concat_f acc1 acc2
+        | LensSwap(l1,l2) ->
+          let acc1 = fold_internal l1 in
+          let acc2 = fold_internal l2 in
+          swap_f acc1 acc2
+        | LensUnion(l1,l2) ->
+          let acc1 = fold_internal l1 in
+          let acc2 = fold_internal l2 in
+          union_f acc1 acc2
+        | LensCompose(l1,l2) ->
+          let acc1 = fold_internal l1 in
+          let acc2 = fold_internal l2 in
+          compose_f acc1 acc2
+        | LensIterate l -> 
+          let acc = fold_internal l in
+          iterate_f acc
+        | LensIdentity r ->
+          identity_f r
+        | LensInverse l ->
+          let acc = fold_internal l in
+          inverse_f acc
+        | LensPermute (p,ls) ->
+          let accs = List.map ~f:fold_internal ls in
+          permute_f p accs
+      end
+    in
+    fold_internal l
 
 
   let one = LensIdentity (Regex.one)
@@ -358,7 +409,6 @@ struct
       | LensIdentity _ -> 1
       | LensInverse l' ->
         1 + (size l')
-      | LensVariable _ -> 1
       | LensPermute (_,ls) ->
         1 + (List.fold_left
                ~f:(fun acc l' -> acc + (size l'))

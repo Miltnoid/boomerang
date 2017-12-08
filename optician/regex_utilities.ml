@@ -1,24 +1,5 @@
 open Stdlib
 open Lang
-open Regexcontext
-
-let rec make_regex_safe_in_smaller_context
-    (rc_smaller:RegexContext.t)
-    (rc_larger:RegexContext.t)
-  : Regex.t -> Regex.t =
-  fold_until_fixpoint
-    (Regex.fold
-       ~empty_f:Regex.zero
-       ~concat_f:Regex.make_times
-       ~or_f:Regex.make_plus
-       ~star_f:Regex.make_star
-       ~base_f:Regex.make_base
-       ~var_f:(fun v ->
-           begin match (RegexContext.lookup rc_smaller v) with
-             | None ->
-               RegexContext.lookup_exn rc_larger v
-             | Some _ -> Regex.make_var v
-           end))
 
 let simplify_regex : Regex.t -> Regex.t =
   let maximally_factor_regex : Regex.t -> Regex.t =
@@ -112,7 +93,7 @@ let simplify_regex : Regex.t -> Regex.t =
      % clean_regex
      % maximally_factor_regex)
 
-
+(*
 let rec iteratively_deepen
     (rc:RegexContext.t)
     (r:Regex.t)
@@ -169,6 +150,7 @@ let rec iteratively_deepen
       | Regex.RegExVariable _ ->
         (rc,r)
     end
+*)
 
 let rec get_dnf_size
   : Regex.t -> int =
@@ -183,5 +165,5 @@ let rec get_dnf_size
         (size1+size2,or_size1+or_size2))
     ~star_f:(fun (size,_) ->
         (size+1,1))
-    ~var_f:(fun _ -> (1,1))
+    ~dist_f:(fun _ -> (1,1))
 

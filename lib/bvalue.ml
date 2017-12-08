@@ -227,7 +227,11 @@ let get_k v = match v with
 let get_m v = match v with
     Mty(_,m)  -> m
   | _ -> conversion_error "resource_set" v
-      
+
+let get_l_safe v = match v with
+  | Lns(_,l) -> Some l
+  | _ -> None
+
 let get_l v = match v with 
   | Lns(_,l) -> l
   | _ -> conversion_error "lens" v

@@ -1681,14 +1681,85 @@ module MLens = struct
            (pred i, Rx.mk_seq (vtype ml_arr.(j)) acc))
         sigma_inv (pred k, Rx.epsilon) in
     let _ = Array.fold_right
-      (fun mli (i, acc) ->
-         cts.(i) <- acc;
-         (pred i, Rx.mk_seq (stype mli) acc))
-      ml_arr (pred k, Rx.epsilon) in
-      mk i (Permute ((k, sigma, sigma_inv, cts, ats), ml_arr))
+        (fun mli (i, acc) ->
+           cts.(i) <- acc;
+           (pred i, Rx.mk_seq (stype mli) acc))
+        ml_arr (pred k, Rx.epsilon) in
+    mk i (Permute ((k, sigma, sigma_inv, cts, ats), ml_arr))
   let canonizer_of_t i ml =
     Canonizer.from_lens i (astype ml) (avtype ml) (vequiv ml) (mtype ml) (gperm ml) (rget ml) (rcreate ml)
   let iter i dl1 min maxo =
     Arx.generic_iter (copy i Rx.epsilon) (union i) (concat i) (star i)
       min maxo dl1
+
+  open Stdlib
+  open Optician.Lang
+
+  let rec to_optician_lens
+      (l:t)
+    : Lens.t option =
+		begin match l.desc with
+		  | Copy r ->
+        let r = Brx.to_optician_regexp r in
+        Some (Lens.LensIdentity r)
+      | Invert ml ->
+        let ml_o = to_optician_lens ml in
+        Option.map
+          ~f:(fun ml -> Lens.LensInverse ml)
+          ml_o
+		  | Compose (ml1, ml2) ->
+        let ml1_o = to_optician_lens ml1 in
+        let ml2_o = to_optician_lens ml2 in
+        begin match (ml1_o,ml2_o) with
+          | (Some ml1,Some ml2) -> Some (Lens.LensCompose (ml1,ml2))
+          | _ -> None
+        end
+	    | Concat (ml1, ml2) ->
+        let ml1_o = to_optician_lens ml1 in
+        let ml2_o = to_optician_lens ml2 in
+        begin match (ml1_o,ml2_o) with
+          | (Some ml1,Some ml2) -> Some (Lens.LensConcat (ml1,ml2))
+          | _ -> None
+        end
+	    | Union (ml1, ml2) ->
+        let ml1_o = to_optician_lens ml1 in
+        let ml2_o = to_optician_lens ml2 in
+        begin match (ml1_o,ml2_o) with
+          | (Some ml1,Some ml2) -> Some (Lens.LensUnion (ml1,ml2))
+          | _ -> None
+        end
+      | Star ml ->
+        let l_o = to_optician_lens ml in
+        Option.map ~f:(fun l -> Lens.LensIterate l) l_o
+      | Clobber(r1,w1,f1) ->
+        if Brx.is_singleton r1 then
+          Some
+            (Lens.LensConst
+               (Option.value_exn (Brx.representative r1),w1))
+        else
+          None
+      | Merge r ->
+        if Brx.is_singleton r then
+          let w = Option.value_exn (Brx.representative r) in
+          Some (Lens.LensConst (w^w,w))
+        else
+          None
+	    | Permute ((_, sigma, _, _, _) , mls) ->
+		    let ls_o =
+          distribute_option
+            (List.map
+               ~f:to_optician_lens
+               (Array.to_list mls))
+        in
+        Option.map
+          ~f:(fun ls ->
+              begin match (Array.to_list sigma,ls) with
+                | ([0;1],[l1;l2]) -> Lens.LensConcat (l1,l2)
+                | ([1;0],[l1;l2]) -> Lens.LensSwap (l1,l2)
+                | (sigma,_) ->
+                  Lens.LensPermute (sigma,ls)
+              end)
+          ls_o
+      | _ -> None
+    end
 end

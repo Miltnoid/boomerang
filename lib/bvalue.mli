@@ -77,6 +77,7 @@ val get_r : t -> Brx.t
 val get_a : t -> Barx.t
 val get_k : t -> Blenses.ktype
 val get_m : t -> Blenses.mtype
+val get_l_safe : t -> Blenses.MLens.t option
 val get_l : t -> Blenses.MLens.t
 val get_q : t -> Blenses.Canonizer.t
 val get_bP : t -> bool Prefs.t

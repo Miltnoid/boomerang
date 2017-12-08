@@ -160,6 +160,7 @@ module rec M : sig
     | Rep of t * int * int option
     | Inter of t list
     | Diff of t * t
+    | Dist of t
   and t = 
       { uid                        : int;
         desc                       : d;
@@ -181,6 +182,7 @@ end = struct
     | Rep of t * int * int option
     | Inter of t list
     | Diff of t * t
+    | Dist of t
   and t = 
       { uid                        : int;
         desc                       : d;
@@ -246,7 +248,8 @@ let rank t0 = match t0.desc with
   | Seq _    -> Crnk
   | Alt _    -> Urnk 
   | Inter _  -> Irnk
-  | Diff _   -> Drnk 
+  | Diff _   -> Drnk
+  | Dist _   -> Arnk
 
 (* printing helpers *)
 let string_of_char_code n = 
@@ -353,6 +356,7 @@ let rec format_t t0 =
       | Alt ts      -> format_list "|" Urnk ts
       | Inter ts    -> format_list "&" Urnk ts
       | Diff(t1,t2) -> format_list "-" Drnk [t1;t2]
+      | Dist t      -> msg "{}"; format_t t; msg "{}";
     end;
     msg "@]"
 
@@ -472,7 +476,9 @@ let rec desc_charmap (t:t) =
         let ml = Safelist.fold_left (fun ml ti -> get_charmap ti::ml) [] tl in
         combine_charmap_list ml
     | Diff(t1,t2) ->
-        combine_charmaps (get_charmap t1) (get_charmap t2)
+      combine_charmaps (get_charmap t1) (get_charmap t2)
+    | Dist t ->
+      desc_charmap t
 
 and get_charmap t = 
   force t.maps 
@@ -567,7 +573,9 @@ let desc_hash d =
       71 * Safelist.fold_left (fun h ti -> h + 883 * ti.hash) 0 tl
   | Diff(t1,t2)      -> 379 * t1.hash + 563 * t2.hash
   | Rep(t1,i,Some j) -> 197 * t1.hash + 137 * i + j
-  | Rep(t1,i,None)   -> 197 * t1.hash + 137 * i + 552556457 in 
+  | Rep(t1,i,None)   -> 197 * t1.hash + 137 * i + 552556457
+  | Dist t           -> 839 * t.hash + 277
+  in
   abs pre_h
 
 let desc_final = function
@@ -578,6 +586,7 @@ let desc_final = function
   | Alt tl      -> Safelist.exists (fun ti -> ti.final) tl
   | Inter tl    -> Safelist.for_all (fun ti -> ti.final) tl
   | Diff(t1,t2) -> t1.final && not t2.final
+  | Dist t      -> t.final
 
 (* let desc_size = function *)
 (*   | CSet _      -> 1 *)
@@ -594,6 +603,7 @@ let desc_ascii = function
   | Alt tl      -> Safelist.for_all (fun t -> t.ascii) tl
   | Inter tl    -> Safelist.exists (fun t -> t.ascii) tl
   | Diff(t1,t2) -> t1.ascii
+  | Dist t      -> t.ascii
 
 (* --------------------- CONSTRUCTORS --------------------- *)
 (* gensym for uids *)
@@ -716,7 +726,11 @@ let rec mk_t d0 =
             (fun c -> mk_inters (Safelist.map (fun ti -> ti.derivative c) tl))
       | Diff(t1,t2) -> 
           mk_table 
-            (fun c -> mk_diff (t1.derivative c) (t2.derivative c)) in 
+            (fun c -> mk_diff (t1.derivative c) (t2.derivative c))
+      | Dist t ->
+        t.derivative
+    in
+
     res in
 
   (* backpatch t0 with implementation of derivative *)  
@@ -737,6 +751,7 @@ and calc_reverse t = match t.desc with
   | Rep(t1,i,jo)  -> mk_rep (get_reverse t1) i jo
   | Inter tl      -> mk_inters (Safelist.map get_reverse tl)
   | Diff(t1,t2)   -> mk_diff (get_reverse t1) (get_reverse t2)
+  | Dist t        -> calc_reverse t
 
 and get_reverse t = 
   force t.reverse 
@@ -1070,7 +1085,9 @@ let rec mk_expand t0 c t = match t0.desc with
   | Inter tl -> 
       mk_inters (Safelist.map (fun ti -> mk_expand ti c t) tl)
   | Diff(t1,t2) -> 
-      mk_diff (mk_expand t1 c t) (mk_expand t2 c t)
+    mk_diff (mk_expand t1 c t) (mk_expand t2 c t)
+  | Dist t ->
+    mk_expand t0 c t
 
 let mk_complement t0 = mk_diff anything t0
 
@@ -1200,7 +1217,9 @@ let mk_string s =
       let m = Char.code s.[pred n-i] in 
       let ti = mk_cset [(m,m)] in 
         loop (succ i) (ti::acc) in 
-    mk_seqs (loop 0 []) 
+  mk_seqs (loop 0 [])
+
+let mk_dist r = mk_t (Dist r) 
 
 let disjoint_cex s1 s2 = 
   match 
@@ -1330,5 +1349,38 @@ let char_derivative r c =
     if easy_empty r' then None
     else Some r'
 
+open Stdlib
+open Optician
+open Regexcontext
+open Lang
 
+let rec to_optician_regexp
+    (r:t)
+  : Regex.t =
+  begin match r.desc with
+    | CSet cs -> Regex.from_char_set cs
+    | Alt rs ->
+      List.fold_left
+        ~f:(fun r r' ->
+            let r' = to_optician_regexp r' in
+            Regex.RegExOr (r,r'))
+        ~init:Regex.RegExEmpty
+        rs
+    | Seq (r1,r2) ->
+      let r1 = to_optician_regexp r1 in
+      let r2 = to_optician_regexp r2 in
+      Regex.RegExConcat (r1,r2)
+    | Rep (r, n, None) ->
+      let r = to_optician_regexp r in
+      Regex.RegExConcat(Regex.iterate_n_times n r, Regex.RegExStar r)
+    | Rep (r, n, Some m) ->
+      let r = to_optician_regexp r in
+      Regex.iterate_m_to_n_times n m r
+    | Dist r ->
+      let r = to_optician_regexp r in
+      Regex.RegExDist r
+    | Diff _ | Inter _ ->
+      failwith "cannot handle intersections or differences in synthesis"
+  end
 
+let compare = compare_t
