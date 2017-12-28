@@ -73,7 +73,7 @@ let get_current_set
         let r' = get_rep_var lc r in
         (r,RegexIntSet.singleton (r',i)))
 
-let rec get_transitive_set
+let get_transitive_set
     (lc:LensContext.t)
   : Regex.t -> RegexToIntSetDict.t =
   snd %
@@ -204,7 +204,7 @@ let force_expand
               (get_rep_var lc r1,star_depth) then
             (r1,r2,e+1)
           else
-            (Regex.make_dist r1, Regex.make_dist r2,0))
+            (r1,Regex.make_dist r2,0))
       r
   in
   (r,i)
@@ -358,7 +358,7 @@ let fix_problem_elts
     (qe:QueueElement.t)
   : QueueElement.t list =
   let s1 = get_current_set lc (QueueElement.get_r1 qe) in
-  let s2 = get_current_set lc (QueueElement.get_r2 qe) in
+  let s2 = get_current_set lc (QueueElement.get_r2 qe) in 
   let problem_elements =
     (List.map
        ~f:(fun e -> Left e)

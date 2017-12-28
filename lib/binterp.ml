@@ -274,10 +274,11 @@ let rec interp_cast (wq:((unit -> V.t) -> unit) option) cev b f t =
 
 (* ----- interpret expressions ----- *)
 
-and interp_exp wq cev e0 = 
+and interp_exp wq cev e0 =
+  (*print_endline (Info.string_of_t (info_of_exp e0));*)
   match e0 with 
-  | EVar(i,q) -> begin 
-      match CEnv.lookup_both cev q with
+  | EVar(i,q) ->
+    begin match CEnv.lookup_both cev q with
         | Some((G.Unknown,v),_) -> v
         | Some((G.Sort s,v),s_env) -> 
             let s_base = Bsubst.erase_sort s in 

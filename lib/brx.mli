@@ -37,7 +37,6 @@ val mk_seq : t -> t -> t
 val mk_star : t -> t
 val mk_iter : t -> int -> int -> t
 val mk_diff : t -> t -> t
-val mk_dist : t -> t
 val mk_complement: t -> t
 val mk_inter : t -> t -> t
 val mk_reverse : t -> t
@@ -99,5 +98,6 @@ val rangle_code : int
 val colon_code : int
 
 val to_optician_regexp : t -> Optician.Lang.Regex.t
+val relevant_component_list : t -> t list
 
 val compare_t : t -> t -> int

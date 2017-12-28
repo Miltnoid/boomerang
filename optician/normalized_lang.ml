@@ -155,6 +155,7 @@ and ordered_exampled_clause = ((ordered_exampled_atom * int) list) list * string
 list * (int list list)
 
 and ordered_exampled_dnf_regex = (ordered_exampled_clause * int) list list
+[@@deriving show]
 
 let rec compare_exampled_atoms (a1:exampled_atom) (a2:exampled_atom) :
   comparison =

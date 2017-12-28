@@ -15,7 +15,7 @@ let rec to_empty_exampled_regex (r:Regex.t) : exampled_regex =
          (to_empty_exampled_regex r2),
          [])
   | Regex.RegExStar r' -> ERegExStar (to_empty_exampled_regex r',[])
-  | Regex.RegExDist r' -> ERegExDist (r',[],[])
+  | Regex.RegExDist r' -> ERegExDist (r,[],[])
   end
 
 type data = string * exampled_regex *

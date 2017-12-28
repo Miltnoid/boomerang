@@ -55,13 +55,19 @@ module LensContext = struct
   let create_from_list_exn (nirsl:(Lens.t * Regex.t * Regex.t) list) : t =
     insert_list_exn empty nirsl
 
-  let shortest_path (lc:t) (regex1:Regex.t) (regex2:Regex.t)
+  module M = ListOf(PairOf(Lens)(Regex))
+
+  let shortest_path
+      (lc:t)
+      (regex1:Regex.t)
+      (regex2:Regex.t)
     : Lens.t option =
     let outgoing = lc.outgoing in
-    let rec shortest_path_internal (accums:(Lens.t * Regex.t) list) : Lens.t =
+    let rec shortest_path_internal
+        (accums:(Lens.t * Regex.t) list) : Lens.t =
       let satisfying_path_option =
         List.find
-          ~f:(fun (_,n) -> n = regex1)
+          ~f:(fun (_,n) -> is_equal (Regex.compare n regex2))
           accums
       in
       begin match satisfying_path_option with
@@ -87,7 +93,7 @@ module LensContext = struct
     let regex2_rep = DS.find_representative lc.equivs regex2 in
     if regex1_rep <> regex2_rep then
       None
-    else if regex1 = regex2 then
+    else if is_equal (Regex.compare regex1 regex2) then
       Some (Lens.LensIdentity (regex1))
     else
       Some (shortest_path_internal (get_outgoing_edges outgoing regex1))
@@ -96,7 +102,10 @@ module LensContext = struct
     : Lens.t =
     begin match shortest_path lc regex1 regex2 with
       | None -> 
-        failwith "regexes not in same equivalence class"
+        failwith ("regexes not in same equivalence class: r1"
+                  ^ (Regex.show regex1)
+                  ^ "r2:"
+                  ^ (Regex.show regex2))
       | Some l -> l
     end
 

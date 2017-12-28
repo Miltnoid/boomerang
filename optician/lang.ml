@@ -121,6 +121,7 @@ struct
       ?downward_concat:(downward_concat:'b -> 'b = ident)
       ?downward_or:(downward_or:'b -> 'b = ident)
       ?downward_star:(downward_star:'b -> 'b = ident)
+      ?downward_dist:(downward_dist:'b -> 'b = ident)
     : t -> 'a =
     let rec fold_downward_upward_internal
         (downward_acc:'b)
@@ -147,7 +148,7 @@ struct
             downward_acc
             (fold_downward_upward_internal downward_acc' r')
         | RegExDist r' ->
-          let downward_acc' = downward_star downward_acc in
+          let downward_acc' = downward_dist downward_acc in
           upward_dist
             downward_acc
             (fold_downward_upward_internal downward_acc' r')
@@ -417,7 +418,7 @@ struct
     end
 
   let rec is_sublens (sublens:t) (suplens:t) : bool =
-    if sublens = suplens then
+    if is_equal (compare sublens suplens) then
       true
     else
       begin match suplens with

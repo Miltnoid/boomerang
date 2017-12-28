@@ -42,7 +42,7 @@ let to_boomerang_regex : Regex.t -> Brx.t =
     ~concat_f:Brx.mk_seq
     ~or_f:Brx.mk_alt
     ~star_f:Brx.mk_star
-    ~dist_f:Brx.mk_dist
+    ~dist_f:(ident)
 
 let to_boomerang_lens
     (i:Info.t)
@@ -122,9 +122,18 @@ let synth
     (r1:Brx.t)
     (r2:Brx.t)
     (exs:(string * string) list)
-  : Blenses.MLens.t =
+  : Blenses.MLens.t = 
+  let relevant_components =
+    (Brx.relevant_component_list r1)
+    @ (Brx.relevant_component_list r2)
+  in
   let r1 = Brx.to_optician_regexp r1 in
   let r2 = Brx.to_optician_regexp r2 in
   to_boomerang_lens
     i
-    (Option.value_exn (Gen.gen_lens (LensContext.empty) r1 r2 exs))
+    (Option.value_exn
+       (Gen.gen_lens
+          (populate_lens_context relevant_components env)
+          r1
+          r2
+          exs))

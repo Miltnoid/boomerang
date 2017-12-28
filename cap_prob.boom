@@ -1,7 +1,6 @@
 module Cap_prob =
 let LOWERCASE
   : regexp =
-  dist
   ("a"
     | "b"
     | "c"
@@ -20,7 +19,6 @@ let LOWERCASE
 
 let UPPERCASE
   : regexp =
-  dist
   ("A"
     | "B"
     | "C"
