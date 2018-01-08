@@ -81,19 +81,49 @@ let populate_lens_context
       ~f:Blenses.MLens.bij
       lens_list
   in
+  let lo = List.hd bij_lens_list in
+  print_endline (string_of_int (List.length bij_lens_list));
+  print_endline (string_of_int (List.length relevant_regexps));
+  print_endline "BOPPERS";
+  List.iter
+    ~f:(fun x ->
+        print_endline "\n\n\nBOPPER:";
+        print_endline (Brx.string_of_t x);
+        let cex =
+          Option.map
+          ~f:(fun l -> Brx.disjoint_cex
+            ((Blenses.MLens.stype l))
+            (Brx.mk_complement x))
+          lo
+        in
+        begin match cex with
+          | None -> ()
+          | Some None -> print_endline "HUH"
+          | Some Some s ->
+            print_endline s
+        end)
+    (List.filter
+       ~f:(fun r -> (not (Brx.is_empty (Brx.derivative r "BOP"))) && (Brx.is_empty (Brx.derivative r "POB")))
+       relevant_regexps)
+    ;
   let lenses_types =
     List.filter_map
       ~f:(fun l ->
+          print_endline "\n\n\n\nsrc";
+          print_endline (Brx.string_of_t (Blenses.MLens.stype l));
+          print_endline (Brx.string_of_t (Blenses.MLens.vtype l));
           let stype_o =
             List.find
               ~f:(Brx.equiv (Blenses.MLens.stype l))
               relevant_regexps
           in
+          print_endline (string_of_bool (is_none stype_o));
           let vtype_o =
             List.find
               ~f:(Brx.equiv (Blenses.MLens.vtype l))
               relevant_regexps
           in
+          print_endline (string_of_bool (is_none vtype_o));
           begin match (stype_o,vtype_o) with
             | (Some stype, Some vtype) -> Some (l,stype,vtype)
             | _ -> None
@@ -101,10 +131,13 @@ let populate_lens_context
       bij_lens_list
   in
 
+  print_endline (string_of_int (List.length lenses_types));
+
   let optician_lenses_types =
     List.filter_map
       ~f:(fun (l,s,v) ->
           let l_o = Blenses.MLens.to_optician_lens l in
+          if Option.is_none l_o then print_endline "deep" else print_endline "peed";
           Option.map
             ~f:(fun l ->
                 (l
@@ -122,18 +155,19 @@ let synth
     (r1:Brx.t)
     (r2:Brx.t)
     (exs:(string * string) list)
-  : Blenses.MLens.t = 
+  : Blenses.MLens.t =
   let relevant_components =
     (Brx.relevant_component_list r1)
     @ (Brx.relevant_component_list r2)
   in
   let r1 = Brx.to_optician_regexp r1 in
   let r2 = Brx.to_optician_regexp r2 in
+  let lc = populate_lens_context relevant_components env in
   to_boomerang_lens
     i
     (Option.value_exn
        (Gen.gen_lens
-          (populate_lens_context relevant_components env)
+          lc
           r1
           r2
           exs))

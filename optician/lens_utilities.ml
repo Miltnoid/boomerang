@@ -139,6 +139,7 @@ let distribute_inverses : Lens.t -> Lens.t =
 
 
 let simplify_lens : Lens.t -> Lens.t =
+  fun l ->
   let maximally_factor_lens : Lens.t -> Lens.t =
     Semiring.maximally_factor_element
       lens_semiring
@@ -443,9 +444,7 @@ let simplify_lens : Lens.t -> Lens.t =
     % maximally_factor_lens
     % separate_emptystring_consts
   in
-  
-  fold_until_fixpoint
     (perform_cleanups
      % split_consts_into_concats_rightfirst
      % perform_cleanups
-     % split_consts_into_concats_leftfirst)
+     % split_consts_into_concats_leftfirst) l

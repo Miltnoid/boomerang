@@ -1106,18 +1106,19 @@ let rec mk_expand_internal t0 c t = match t0.desc with
   | Dist t0 ->
     mk_expand_internal t0 c t
 
-let mk_cset cs           = mk_dist (mk_cset_internal cs)
-let mk_neg_cset cs       = mk_dist (mk_neg_cset_internal cs) 
-let mk_neg_ascii_cset cs = mk_dist (mk_neg_ascii_cset_internal cs) 
-let mk_alt t0 t1         = mk_dist (mk_alt_internal t0 t1)
-let mk_seq t0 t1         = mk_dist (mk_seq_internal t0 t1)
-let mk_star t0           = mk_dist (mk_star_internal t0) 
-let mk_iter t0 i1 i2     = mk_dist (mk_iter_internal t0 i1 i2) 
-let mk_diff t0 t1        = mk_dist (mk_diff_internal t0 t1)
-let mk_complement t0     = mk_dist (mk_diff_internal anything t0)
-let mk_inter t0 t1       = mk_dist (mk_inter_internal t0 t1) 
-let mk_expand t0 i t1    = mk_dist (mk_expand_internal t0 i t1)
-let mk_reverse t0        = mk_dist (get_reverse t0)
+let mk_cset cs           = (mk_cset_internal cs)
+let mk_neg_cset cs       = (mk_neg_cset_internal cs) 
+let mk_neg_ascii_cset cs = (mk_neg_ascii_cset_internal cs) 
+let mk_alt t0 t1         = (mk_alt_internal t0 t1)
+let mk_seq t0 t1         = (mk_seq_internal t0 t1)
+let mk_star t0           = (mk_star_internal t0) 
+let mk_iter t0 i1 i2     = (mk_iter_internal t0 i1 i2) 
+let mk_diff t0 t1        = (mk_diff_internal t0 t1)
+let mk_complement t0     = (mk_diff_internal anything t0)
+let mk_inter t0 t1       = (mk_inter_internal t0 t1) 
+let mk_expand t0 i t1    = (mk_expand_internal t0 i t1)
+let mk_reverse t0        = (get_reverse t0)
+let mk_dist r0           = mk_dist r0
 
 let reverse_string w = 
   let n = String.length w in 
@@ -1284,8 +1285,6 @@ let disjoint s1 s2 =
   is_empty (mk_inter_internal s1 s2) 
 
 let equiv s1 s2 = 
-  let s1 = remove_dist s1 in
-  let s2 = remove_dist s2 in
   s1.uid = s2.uid 
   || (is_empty (mk_diff_internal s1 s2) && is_empty (mk_diff_internal s2 s1))
 
