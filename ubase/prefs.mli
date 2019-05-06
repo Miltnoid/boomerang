@@ -33,6 +33,10 @@ val constantsCostCorrectPairPref : bool t
 val noTerminationConditionPref : bool t
 val twentyFiveTerminationConditionPref : bool t
 val negTwentyFiveTerminationConditionPref : bool t
+val noSkipPref : bool t
+val noRequirePref : bool t
+val lensSizePref : bool t
+val regexSizePref : bool t
 val noKeepGoingPref : bool t
 
 val logPref : bool t

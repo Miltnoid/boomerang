@@ -446,7 +446,11 @@ let toplevel' progName () =
        | ["put"],[l],[s_fn],[v_fn]    -> put l v_fn s_fn o_fn
        | _ -> assert false
      end)
-  (fun () -> Util.flush ())
+  (fun () -> Util.flush ();
+    if Prefs.read Prefs.lensSizePref then print_endline (string_of_int (!Bconsts.lens_size));
+    if Prefs.read Prefs.regexSizePref then print_endline (string_of_int (!Bconsts.regex_size));
+    ()
+  )
 
 let toplevel progName =
   Printexc.record_backtrace true;

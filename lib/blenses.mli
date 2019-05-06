@@ -126,4 +126,5 @@ module MLens : sig
     -> t -> t
 
   val is_eq : t -> t -> bool
+  val lens_size : t -> int
 end

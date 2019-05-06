@@ -165,6 +165,30 @@ let retrieve_existing_lenses
     in
     (lens_list,d)
 
+let remove_skips
+  : Regex.t -> Regex.t =
+  Regex.fold
+    ~empty_f:Regex.empty
+    ~base_f:Regex.make_base
+    ~concat_f:Regex.make_concat
+    ~or_f:Regex.make_or
+    ~star_f:Regex.make_star
+    ~closed_f:Regex.make_closed
+    ~skip_f:ident
+    ~require_f:Regex.make_require
+
+let remove_requires
+  : Regex.t -> Regex.t =
+  Regex.fold
+    ~empty_f:Regex.empty
+    ~base_f:Regex.make_base
+    ~concat_f:Regex.make_concat
+    ~or_f:Regex.make_or
+    ~star_f:Regex.make_star
+    ~closed_f:Regex.make_closed
+    ~skip_f:Regex.make_skip
+    ~require_f:ident
+
 let synth
     (i:Info.t)
     (env:CEnv.t)
@@ -176,6 +200,10 @@ let synth
     (putr_exs:put_examples)
     (putl_exs:put_examples)
   : Blenses.MLens.t =
+  let get_lens_size = Prefs.read Prefs.lensSizePref in
+  let get_regex_size = Prefs.read Prefs.regexSizePref in
+  if get_regex_size then
+    Bconsts.regex_size := Brx.size r1 + Brx.size r2;
   let dumb_cost = Prefs.read Prefs.dumbCostPref in
   let dumb_cost_correct_pair = Prefs.read Prefs.dumbCostCorrectPairPref in
   let constants_cost = Prefs.read Prefs.constantsCostPref in
@@ -193,6 +221,18 @@ let synth
   let (lss,d) = retrieve_existing_lenses subregexps env in
   let r1 = Brx.to_optician_regexp r1 in
   let r2 = Brx.to_optician_regexp r2 in
+  let (r1,r2) =
+    if Prefs.read Prefs.noSkipPref then
+      (remove_skips r1, remove_skips r2)
+    else
+      (r1,r2)
+  in
+  let (r1,r2) =
+    if Prefs.read Prefs.noRequirePref then
+      (remove_requires r1, remove_requires r2)
+    else
+      (r1,r2)
+  in
   let ans =
     to_boomerang_lens
       i
@@ -208,6 +248,8 @@ let synth
             putr_exs
             putl_exs))
   in
+  if get_lens_size then
+    Bconsts.lens_size := MLens.lens_size ans;
   if dumb_cost then
     (Optician.Consts.no_intelligent_cost := true;
      let ans2 =

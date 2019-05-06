@@ -1701,3 +1701,28 @@ let rec to_optician_regexp r =
 
 let compare_t r =
   Impl.compare_t (get_brz_form r)
+
+let rec size r =
+  begin match r.desc with
+    | CSet cs -> 2 * List.length cs
+    | String s -> 1
+    | Alt (r1,r2) ->
+      1 + size r1 + size r2
+    | Seq (r1,r2) ->
+      1 + size r1 + size r2
+    | Star r ->
+      1 + size r
+    | Iter (r,i1,i2) ->
+      if (i2 < 0) then
+        size r + 1
+      else
+        size r + 2
+    | Empty -> 1
+    | Skip r' -> 1 + size r'
+    | Require r' -> 1 + size r'
+    | Diff (r1,r2) -> 1 + size r1 + size r2
+    | Complement r -> 1 + size r
+    | Inter (r1,r2) -> 1 + size r1 + size r2
+    | Reverse r -> 1 + size r
+    | Expand (r1,_,r2) -> 2 + size r1 + size r2
+  end

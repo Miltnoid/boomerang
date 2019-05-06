@@ -2016,4 +2016,30 @@ module MLens = struct
         else
           false
     end
+
+  let rec lens_size l =
+    begin match l.desc with
+      | Copy r -> 1 + Rx.size r
+      | Disconnect (r1,r2,_,_) -> 3 + Rx.size r1 + Rx.size r2
+      | Concat (l1,l2) -> 1 + lens_size l1 + lens_size l2
+      | Union (l1,l2) -> 1 + lens_size l1 + lens_size l2
+      | Star l -> 1 + lens_size l
+      | Match (_,l) -> 1 + lens_size l
+      | Weight (_,l) -> 1 + lens_size l
+      | Compose (l1,l2) -> 1 + lens_size l1 + lens_size l2
+      | Align l -> 1 + lens_size l
+      | Invert l -> 1 + lens_size l
+      | Defaults (l,_,_) -> 3 + lens_size l
+      | LeftQuot _
+      | RightQuot _
+      | DupFirst _
+      | DupSecond _
+      | Partition _
+      | Interleave _
+      | Merge _
+      | Fiat _ -> failwith "shouldnt happen"
+      | Permute (_,ls) ->
+        let ls = Array.to_list ls in
+        1 + List.fold_left (fun s l -> 1 + s + lens_size l) 0 ls
+    end
 end

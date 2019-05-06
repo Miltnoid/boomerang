@@ -210,6 +210,14 @@ let constantsCostCorrectPairPref = createBool "constantCostCorrectPair" false "u
 let noTerminationConditionPref = createBool "noTerminationCondition" false "we use no termination condition when synth"
     "When this flag set, no termination condition"
 
+let noSkipPref = createBool "noSkip" false "we use no skip when synth" "When this flag set, skips ignored"
+
+let noRequirePref = createBool "noRequire" false "we use no require when synth" "When this flag set, requires ignored"
+
+let lensSizePref = createBool "lensSize" false "print the size" "When this flag set, print last synthesized lens size"
+
+let regexSizePref = createBool "regexSize" false "print the size" "When this flag set, print last synthesized regex size"
+
 let twentyFiveTerminationConditionPref = createBool "twentyfivetc" false "we use termination condition of 25 when synth"
     "When this flag set, termination condition of 25"
 

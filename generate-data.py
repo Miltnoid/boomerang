@@ -10,6 +10,13 @@ import subprocess
 import sys
 import time
 
+from math import sqrt
+
+def stddev(lst):
+    mean = float(sum(lst)) / len(lst)
+    return sqrt(float(reduce(lambda x, y: x + y, map(lambda x: (x - mean) ** 2, lst))) / len(lst))
+
+
 TEST_EXT = '.boom'
 BASELINE_EXT = '.out'
 BASE_FLAGS = []
@@ -51,7 +58,7 @@ def gather_data(rootlength, prog, path, base):
         error = False
         for iteration in range(repetition_count):
     	    (time,datum,err) = gather_datum(prog, path, base,flags,timeout_time)
-            if err != "" or datum != "":
+            if err != "":
                 error = True
                 break
             if time > TIMEOUT_TIME:
@@ -69,8 +76,7 @@ def gather_data(rootlength, prog, path, base):
     def ctime_combiner(run_data_transpose):
         print(run_data_transpose[0])
         computation_time_col = [float(x) for x in run_data_transpose[0]]
-        ans = sum(computation_time_col)/len(computation_time_col)
-        ans = (int)(ans * 1000)
+        ans = stddev(computation_time_col)
         return ans
 
     def exs_reqd_combiner(run_data_transpose):
@@ -82,22 +88,27 @@ def gather_data(rootlength, prog, path, base):
 	    return int(sum(example_number_col)/len(example_number_col))
 
     def specsize_combiner(run_data_transpose):
-	    example_number_col = [float(x) for x in run_data_transpose[0]]
+            print(run_data_transpose[1])
+	    example_number_col = [float(x) for x in run_data_transpose[1]]
 	    return int(sum(example_number_col)/len(example_number_col))
 
 
     gather_col([],ctime_combiner,"SS",TIMEOUT_TIME,REPETITION_COUNT)
-    gather_col(["-noCS"],ctime_combiner,"SSNC",TIMEOUT_TIME,REPETITION_COUNT)
-    gather_col(["-bijSynth"],ctime_combiner,"BS",TIMEOUT_TIME,REPETITION_COUNT)
-    gather_col(["-bijSynth","-noCS"],ctime_combiner,"BSNC",TIMEOUT_TIME,REPETITION_COUNT)
-    gather_col(["-noKeepGoing"],ctime_combiner,"NoTP",TIMEOUT_TIME,1)
-    gather_col(["-twentyfivetc"],ctime_combiner,"TC25",TIMEOUT_TIME,1)
-    gather_col(["-negtwentyfivetc"],ctime_combiner,"TCN25",TIMEOUT_TIME,1)
-    gather_col(["-noTerminationCondition"],ctime_combiner,"FC",TIMEOUT_TIME,1)
-    gather_col(["-dumbCost"],ctime_combiner,"NM",TIMEOUT_TIME,1)
-    gather_col(["-dumbCostCorrectPair"],ctime_combiner,"NMCC",TIMEOUT_TIME,1)
-    gather_col(["-constantCost"],ctime_combiner,"ConstCost",TIMEOUT_TIME,1)
-    gather_col(["-constantCostCorrectPair"],ctime_combiner,"ConstCostCC",TIMEOUT_TIME,1)
+    #gather_col(["-noCS"],ctime_combiner,"SSNC",TIMEOUT_TIME,REPETITION_COUNT)
+    #gather_col(["-bijSynth"],ctime_combiner,"BS",TIMEOUT_TIME,REPETITION_COUNT)
+    #gather_col(["-bijSynth","-noCS"],ctime_combiner,"BSNC",TIMEOUT_TIME,REPETITION_COUNT)
+    ##gather_col(["-noKeepGoing"],ctime_combiner,"NoTP",TIMEOUT_TIME,1)
+    ##gather_col(["-twentyfivetc"],ctime_combiner,"TC25",TIMEOUT_TIME,1)
+    ##gather_col(["-negtwentyfivetc"],ctime_combiner,"TCN25",TIMEOUT_TIME,1)
+    #gather_col(["-noTerminationCondition"],ctime_combiner,"FC",TIMEOUT_TIME,1)
+    #gather_col(["-dumbCost"],ctime_combiner,"NM",TIMEOUT_TIME,1)
+    #gather_col(["-dumbCostCorrectPair"],ctime_combiner,"NMCC",TIMEOUT_TIME,1)
+    #gather_col(["-constantCost"],ctime_combiner,"ConstCost",TIMEOUT_TIME,1)
+    #gather_col(["-constantCostCorrectPair"],ctime_combiner,"ConstCostCC",TIMEOUT_TIME,1)
+    #gather_col(["-noSkip"],ctime_combiner,"NoSkip",TIMEOUT_TIME,1)
+    #gather_col(["-noRequire"],ctime_combiner,"NoRequire",TIMEOUT_TIME,1)
+    #gather_col(["-regexSize"],specsize_combiner,"RegexSize",TIMEOUT_TIME,1)
+    #gather_col(["-lensSize"],specsize_combiner,"LensSize",TIMEOUT_TIME,1)
     ##gather_col(['-forceexpand','-time'],ctime_combiner,"ForceExpandTime",TIMEOUT_TIME,REPETITION_COUNT)
     #gather_col(['-naive_strategy','-time'],ctime_combiner,"NaiveStrategy",TIMEOUT_TIME,REPETITION_COUNT)
     ##gather_col(['-naive_pqueue','-time'],ctime_combiner,"NaivePQueue",TIMEOUT_TIME,REPETITION_COUNT)

@@ -101,3 +101,5 @@ val colon_code : int
 
 val subregexp_list : t -> t list
 val to_optician_regexp : t -> Optician.Lang.Regex.t
+
+val size : t -> int
