@@ -156,9 +156,9 @@ def specsize_compare(x,y):
 def sort_data(data):
     return sorted(data,cmp=specsize_compare)
 
-def print_data(data):
+def print_data(data,fname):
     ensure_dir("generated_data/")
-    with open("generated_data/data" + str(time.time()) + ".csv", "wb") as csvfile:
+    with open("generated_data/" + fname + ".csv", "wb") as csvfile:
 	datawriter = csv.DictWriter(csvfile,fieldnames=data[0].keys())
 	datawriter.writeheader()
 	datawriter.writerows(data)
@@ -180,9 +180,10 @@ def transform_data(path, base, run_data):
     return current_data
 
 def main(args):
-    if len(args) == 3:
+    if len(args) == 4:
         prog = args[1]
         path = args[2]
+        fname = args[3]
         rootlength = len(path)
         data = []
         if not os.path.exists(prog):
@@ -193,7 +194,7 @@ def main(args):
                 current_data = gather_data(rootlength,prog, path, base)
                 data.append(current_data)
             #data = sort_data(data)
-	    print_data(data)
+	    print_data(data,fname)
         else:
             path, filename = os.path.split(path)
             base, ext = splitext(filename)
